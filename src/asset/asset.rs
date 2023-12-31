@@ -7,12 +7,12 @@ use crate::HandleStatus;
  */
 pub trait Asset: Any + Send + Sync {
     /**
-     * True if all dependencies, if any, are finished loading.
-     * If at least one failed, status is [`AssetStatus::Failed`].
-     * If at least one is loading and none are failed, status is [`AssetStatus::Loading`].
-     * If all are loaded, status is loaded [`AssetStatus::Loaded`].
+     * The merged [`HandleStatus`] of all dependencies, if any.
+     * If at least one failed, status is [`HandleStatus::Failed`].
+     * If at least one is loading and none are failed, status is [`HandleStatus::Loading`].
+     * If all are loaded, status is loaded [`HandleStatus::Loaded`].
      */
-    fn status(&self) -> HandleStatus {
+    fn dependency_status(&self) -> HandleStatus {
         return HandleStatus::Loaded
     }
 }

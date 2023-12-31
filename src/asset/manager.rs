@@ -1,8 +1,7 @@
 use std::collections::HashMap;
-use std::os::windows::io::HandleOrInvalid;
 use std::sync::{Arc, RwLock};
 use derive_more::{Error, Display};
-use crate::{Handle, Protocol, PathParts, Asset, Dependencies, DynLoader, Loader, Slot, HandleId, DynHandle, AssetBatch, HandleStatus};
+use crate::{Handle, Protocol, PathParts, Asset, Dependencies, DynLoader, Loader, HandleId, DynHandle};
 
 /**
  * Central location for loading [`Asset`]s located in files.
@@ -28,20 +27,8 @@ impl AssetManager {
         })
     }
 
-    // pub fn batch(&self) -> AssetBatch {
-    //     AssetBatch {
-    //         assets: self.clone(),
-    //         group: todo!(),
-    //     }
-    // }
-
-    pub fn handle_status<I: IntoIterator<Item = HandleId>>(&self, handle_ids: I) -> HandleStatus {
-        let store = self.0.read().unwrap();
-        let mut status = HandleStatus::Loaded;
-        for handle_id in handle_ids {
-            let Some(handle) = store.handles.get(&handle_id) else { continue };
-        }
-        status
+    pub fn load<A: Asset>(&self, path: impl AsRef<str>) -> Handle<A> {
+        self.load_checked(path).unwrap()
     }
 
     /// Loads an asset from a file.
@@ -49,7 +36,7 @@ impl AssetManager {
     /// path/to/file.png            (uses default protocol. Fails if there is none).
     /// file://path/to/file.png     (uses file protocol).
     /// http://path/to/file.png     (uses http protocol)
-    pub fn load<A: Asset>(&self, path: impl AsRef<str>) -> Result<Handle<A>, LoadError> {
+    pub fn load_checked<A: Asset>(&self, path: impl AsRef<str>) -> Result<Handle<A>, LoadError> {
         
         // Gets resources to load asset.
         // Returns early if cached handle was found.
@@ -57,34 +44,34 @@ impl AssetManager {
             let mut store = self.0.write().unwrap();
             let path_parts = PathParts::parse(path.as_ref(), store.default_protocol.as_deref())?;
             let handle_id = fxhash::hash64(&path_parts);
-            if let Some(handle) = store.get_handle::<A>(handle_id)? {
-                return Ok(handle.clone());
+            if let Some(dyn_handle) = store.get_handle(handle_id) {
+                let handle = Handle::<A>::from_dyn(handle_id, dyn_handle.clone(), self.clone());
+                return Ok(handle);
             }
-            let handle = Handle::<A>::loading(handle_id, self.clone());
             let protocol = store.get_protocol(&path_parts.protocol)?;
             let dyn_loader = store.get_loader(&path_parts.extension)?;
-            store.insert_handle(handle_id, handle.clone());
+            let handle = Handle::<A>::new(handle_id, self.clone());
+            store.insert_handle(handle_id, handle.to_dyn());
             (handle, protocol, path_parts, dyn_loader)
         };
 
         // Handle handle in the background.
-        let assets = self.clone();
         let t_handle = handle.clone();
+        let dependencies = Dependencies(self.clone());
         std::thread::spawn(move || {
             let bytes = match protocol.read(&path_parts.body) {
                 Ok(bytes) => bytes,
                 Err(err) => {
                     log::error!("Failed to read bytes from {}: {}", path_parts, err);
-                    *t_handle.write() = Slot::Failed;
+                    t_handle.fail();
                     return;
                 },
             };
-            let dependencies = Dependencies(assets);
             let dyn_asset = match dyn_loader.load(&bytes, &path_parts.extension, dependencies) {
                 Ok(dyn_asset) => dyn_asset,
                 Err(err) => {
                     log::error!("Loader failed on {}: {}", path_parts, err);
-                    *t_handle.write() = Slot::Failed;
+                    t_handle.fail();
                     return;
                 },
             };
@@ -92,18 +79,18 @@ impl AssetManager {
                 Ok(asset) => asset,
                 Err(_) => {
                     log::error!("Incorrect asset type for {}", path_parts);
-                    *t_handle.write() = Slot::Failed;
+                    t_handle.fail();
                     return;
                 },
             };
-            *t_handle.write() = Slot::Loaded(*asset);
+            t_handle.finish(*asset);
         });
         return Ok(handle);
     }
 
-    /// Unloads an asset.
-    /// Called when a [`Handle`] gets dropped.
-    pub(crate) fn unload(&self, handle_id: HandleId) {
+    /// Removes a handle stored internally.
+    /// Called when the last [`Handle`] to an [`Asset`] gets dropped.
+    pub(crate) fn remove_handle(&self, handle_id: HandleId) {
         let mut store = self.0.write().unwrap();
         store.handles.remove(&handle_id);
     }
@@ -162,23 +149,15 @@ struct Store {
 
 impl Store {
     
-    /// Inserts a weak handle into the cache, overwriting the old one.
-    fn insert_handle<A: Asset>(&mut self, handle_id: u64, handle: Handle<A>) {
-        self.handles.insert(handle_id, DynHandle::from_typed(handle));
+    /// Inserts a dynamic handle into the cache, overwriting the old one.
+    fn insert_handle(&mut self, handle_id: u64, dyn_handle: DynHandle) {
+        self.handles.insert(handle_id, dyn_handle);
     }
 
     /// Retrieves a weak handle from the cache if a match is found.
     /// Fails if cached handle is of a different type.
-    fn get_handle<A: Asset>(&self, handle_id: u64) -> Result<Option<&Handle<A>>, LoadError> {
-        if let Some(dyn_handle) = self.handles.get(&handle_id) {
-            if let Some(handle) = dyn_handle.to_typed::<A>() {
-                return Ok(Some(handle));
-            }
-            else {
-                return Err(LoadError::IncorrectAssetType);
-            }
-        }
-        Ok(None)
+    fn get_handle(&self, handle_id: u64) -> Option<&DynHandle> {
+        self.handles.get(&handle_id)
     }
 
     /// Gets a protocol by name, or the default protocol if name is not specified.
@@ -194,7 +173,7 @@ impl Store {
     fn get_loader(&self, extension: &str) -> Result<Arc<dyn DynLoader>, LoadError> {
         let idx = self.extensions_to_loaders
             .get(extension)
-            .ok_or(LoadError::IncorrectAssetType)?;
+            .ok_or(LoadError::NoMatchingLoader)?;
         Ok(self.loaders[*idx].clone())
     }
 }
@@ -204,8 +183,6 @@ impl Store {
 pub enum LoadError {
     #[display(fmt="Invalid path")]
     InvalidPath,
-    #[display(fmt="Cached handle had a different type than the requested type")]
-    IncorrectAssetType,
     #[display(fmt="No matching protocol")]
     NoMatchingProtocol,
     #[display(fmt="Path missing protocol, and no default protocol was available")]
