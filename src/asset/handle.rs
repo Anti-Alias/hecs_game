@@ -55,7 +55,7 @@ impl<A: Asset> Handle<A> {
         }
     }
 
-    /// Gets underlying slot with readaccess.
+    /// Gets underlying slot with read access.
     pub fn slot(&self) -> Slot<'_, A> {
         Slot {
             dyn_slot: self.dyn_handle.0.read().unwrap(),

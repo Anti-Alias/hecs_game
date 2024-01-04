@@ -1,5 +1,6 @@
 use std::time::Duration;
-use hecs_game::{Game, Stage, GameRunner, ExternalRequest, RunContext, Instruction, ScriptContext, instruction};
+use hecs_game::instruction::Instructor;
+use hecs_game::{Game, Stage, GameRunner, ExternalRequest, RunContext, Instruction, ScriptContext, instruction, VarValue};
 use hecs::World;
 
 const TICK_DURATION: Duration = Duration::from_secs(1);
@@ -39,11 +40,19 @@ fn start(_game: &mut Game, mut ctx: RunContext) {
 struct MyScript;
 impl Instruction for MyScript {
     fn start(&mut self, _game: &mut Game, ctx: &mut ScriptContext) {
-        use instruction::{prnt, wait_secs, add};
-        prnt("Hello, world", ctx);
-        wait_secs(3, ctx);
-        prnt("How are you today?", ctx);
-        wait_secs(3, ctx);
-        add(MyScript, ctx);
+        let mut instructor = Instructor(ctx);
+        instructor
+            .init_var("times_run", 0)
+            .print("Hello, world")
+            .wait_secs(1)
+            .print("How are you today?")
+            .wait_secs(1)
+            .inline(|_game, ctx| {
+                let times_run: &mut i32 = ctx.var_mut("times_run");
+                *times_run += 1;
+                if *times_run < 3 {
+                    ctx.add(MyScript);
+                }
+            });
     }
 }

@@ -1,5 +1,5 @@
 use std::time::Duration;
-use crate::{ScriptContext, Instruction, Game};
+use crate::{ScriptContext, Instruction, Game, VarValue, VarKey};
 
 /// A simple print instruction.
 pub struct Print(pub String);
@@ -38,28 +38,71 @@ where
     }
 }
 
+
 // ---------------- Syntactic sugar functions ----------------
-pub fn prnt(message: impl Into<String>, ctx: &mut ScriptContext) {
-    ctx.add(Print(message.into()));
-}
+pub struct Instructor<'a, 'b>(pub &'a mut ScriptContext<'b>);
+impl<'a, 'b> Instructor<'a, 'b> {
 
-pub fn wait_secs(secs: u64, ctx: &mut ScriptContext) {
-    ctx.add(Wait(Duration::from_secs(secs)));
-}
-
-pub fn wait_secs_f32(secs: f32, ctx: &mut ScriptContext) {
-    ctx.add(Wait(Duration::from_secs_f32(secs)));
-}
-
-pub fn wait_millis(millis: u64, ctx: &mut ScriptContext) {
-    ctx.add(Wait(Duration::from_millis(millis)));
-}
-
-pub fn inline<F>(ctx: &mut ScriptContext, callback: F)
-where F: FnMut(&mut Game, &mut ScriptContext) + Send + Sync + 'static {
-    ctx.add(Inline(callback));
-}
-
-pub fn add(instruction: impl Instruction, ctx: &mut ScriptContext) {
-    ctx.add(instruction);
+    pub fn print(&mut self, message: impl Into<String>) -> &mut Self {
+        self.0.add(Print(message.into()));
+        self
+    }
+    
+    /// Waits for a period of time.
+    pub fn wait_secs(&mut self, secs: u64) -> &mut Self {
+        self.0.add(Wait(Duration::from_secs(secs)));
+        self
+    }
+    
+    /// Waits for a period of time.
+    pub fn wait_secs_f32(&mut self, secs: f32) -> &mut Self {
+        self.0.add(Wait(Duration::from_secs_f32(secs)));
+        self
+    }
+    
+    /// Waits for a period of time.
+    pub fn wait_millis(&mut self, millis: u64) -> &mut Self {
+        self.0.add(Wait(Duration::from_millis(millis)));
+        self
+    }
+    
+    /// Performs some inline task that completes immediately.
+    pub fn inline<F>(&mut self, callback: F) -> &mut Self
+    where F: FnMut(&mut Game, &mut ScriptContext) + Send + Sync + 'static {
+        self.0.add(Inline(callback));
+        self
+    }
+    
+    /**
+     * Sets a variable, overwriting the old one if it exists.
+    */
+    pub fn set_var<V: VarValue>(&mut self, var_key: impl Into<VarKey>, var_value: V) -> &mut Self {
+        let var_key = var_key.into();
+        let mut var_value = Some(Box::new(var_value));
+        self.inline(move|_game, ctx| {
+            let var_value = var_value.take().unwrap();
+            ctx.set_var_boxed(var_key, var_value)
+        });
+        self
+    }
+    
+    /**
+     * Sets a variable if it does not exist.
+    */
+    pub fn init_var(&mut self, var_key: impl Into<VarKey>, var_value: impl VarValue) -> &mut Self {
+        let var_key = var_key.into();
+        let mut var_value = Some(Box::new(var_value));
+        self.inline(move|_game, ctx| {
+            if !ctx.contains_var(var_key) {
+                let var_value = var_value.take().unwrap();
+                ctx.set_var_boxed(var_key, var_value);
+            }
+        });
+        self
+    }
+    
+    pub fn add(&mut self, instruction: impl Instruction) -> &mut Self {
+        self.0.add(instruction);
+        self
+    }
 }

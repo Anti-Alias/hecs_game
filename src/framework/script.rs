@@ -1,4 +1,6 @@
-use std::collections::VecDeque;
+use std::any::Any;
+use std::collections::{VecDeque, HashMap};
+use derive_more::*;
 use crate::{Game, RunContext};
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash, Ord, PartialOrd)]
@@ -10,6 +12,7 @@ pub struct ScriptId(pub(crate) u64);
 pub struct Script {
     current: Option<Box<dyn Instruction>>,
     instructions: VecDeque<Box<dyn Instruction>>,
+    variables: HashMap<VarKey, Box<dyn Any>>,
     stopped: bool,
 }
 
@@ -19,6 +22,7 @@ impl Script {
         Self {
             current: None,
             instructions: VecDeque::new(),
+            variables: HashMap::new(),
             stopped: false,
         }
     }
@@ -77,6 +81,24 @@ impl<I: Instruction> From<I> for Script {
 }
 
 /**
+ * Value of a variable stored in a [`Script`].
+ */
+pub trait VarValue: Any + Send + Sync {}
+impl<T: Any + Send + Sync> VarValue for T {}
+
+/**
+ * Hash of a variable name.
+ */
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Hash, Ord, PartialOrd)]
+pub struct VarKey(u64);
+impl From<&str> for VarKey {
+    fn from(value: &str) -> Self {
+        Self(fxhash::hash64(value))
+    }
+}
+
+
+/**
  * Some task that runs for one or more game ticks.
  */
 pub trait Instruction: Send + Sync + 'static {
@@ -116,4 +138,80 @@ impl<'a> ScriptContext<'a> {
         self.insert_index += 1;
         self
     }
+
+    /**
+     * Sets a variable.
+     */
+    pub fn set_var<V: VarValue>(&mut self, var_key: impl Into<VarKey>, var_value: V) {
+        self.set_var_boxed(var_key.into(), Box::new(var_value));
+    }
+
+    /**
+     * Sets a variable.
+     */
+    pub fn set_var_boxed(&mut self, var_key: VarKey, var_value: Box<dyn Any + Send + Sync>) {
+        self.script.variables.insert(var_key, var_value);
+    }
+
+    /**
+     * Unsets a variable.
+     */
+    pub fn unset_var(&mut self, var_key: impl Into<VarKey>) {
+        self.script.variables.remove(&var_key.into());
+    }
+
+    /**
+     * Sets a variable.
+     */
+    pub fn contains_var(&mut self, var_key: impl Into<VarKey>) -> bool {
+        self.script.variables.contains_key(&var_key.into())
+    }
+
+    /**
+     * Retrieves a variable.
+     * Panics if not found, or was of a different type.
+     */
+    pub fn var<V: VarValue>(&self, var_name: impl Into<VarKey>) -> &V {
+        self.try_var(var_name).unwrap()
+    }
+
+    /**
+     * Retrieves a variable.
+     * Panics if not found, or was of a different type.
+     */
+    pub fn var_mut<V: VarValue>(&mut self, var_name: impl Into<VarKey>) -> &mut V {
+        self.try_var_mut(var_name).unwrap()
+    }
+
+    /**
+     * Retrieves a variable.
+     */
+    pub fn try_var<V: VarValue>(&self, var_name: impl Into<VarKey>) -> Result<&V, ScriptError> {
+        let box_any = self.script.variables
+            .get(&var_name.into())
+            .ok_or(ScriptError::VariableNotFound)?;
+        let value = box_any
+            .downcast_ref::<V>()
+            .ok_or(ScriptError::IncorrectVariableType)?;
+        Ok(value)
+    }
+
+    /**
+     * Retrieves a variable.
+     */
+    pub fn try_var_mut<V: VarValue>(&mut self, var_name: impl Into<VarKey>) -> Result<&mut V, ScriptError> {
+        let box_any = self.script.variables
+            .get_mut(&var_name.into())
+            .ok_or(ScriptError::VariableNotFound)?;
+        let value = box_any
+            .downcast_mut::<V>()
+            .ok_or(ScriptError::IncorrectVariableType)?;
+        Ok(value)
+    }
+}
+
+#[derive(Error, Display, Debug)]
+pub enum ScriptError {
+    VariableNotFound,
+    IncorrectVariableType,
 }
