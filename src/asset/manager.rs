@@ -28,7 +28,7 @@ impl AssetManager {
     }
 
     pub fn load<A: Asset>(&self, path: impl AsRef<str>) -> Handle<A> {
-        self.load_checked(path).unwrap()
+        self.try_load(path).unwrap()
     }
 
     /// Loads an asset from a file.
@@ -36,7 +36,7 @@ impl AssetManager {
     /// path/to/file.png            (uses default protocol. Fails if there is none).
     /// file://path/to/file.png     (uses file protocol).
     /// http://path/to/file.png     (uses http protocol)
-    pub fn load_checked<A: Asset>(&self, path: impl AsRef<str>) -> Result<Handle<A>, LoadError> {
+    pub fn try_load<A: Asset>(&self, path: impl AsRef<str>) -> Result<Handle<A>, LoadError> {
         
         // Gets resources to load asset.
         // Returns early if cached handle was found.

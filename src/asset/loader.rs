@@ -33,6 +33,6 @@ where
 pub struct Dependencies(pub(crate) AssetManager);
 impl Dependencies {
     pub fn load<A: Asset>(&self, path: impl AsRef<str>) -> Result<Handle<A>, LoadError> {
-        return self.0.load_checked(path)
+        return self.0.try_load(path)
     }
 }

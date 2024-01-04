@@ -163,10 +163,10 @@ impl<'a, A: Asset> Slot<'a, A> {
     }
 
     pub fn value(&self) -> SlotValue<&A> {
-        self.value_checked().unwrap()
+        self.try_value().unwrap()
     }
 
-    pub fn value_checked(&self) -> Result<SlotValue<&A>, SlotError> {
+    pub fn try_value(&self) -> Result<SlotValue<&A>, SlotError> {
         let dyn_slot = &*self.dyn_slot;
         let dyn_asset: &dyn Any = match dyn_slot {
             DynSlot::Loaded(dyn_asset) => dyn_asset,
@@ -210,10 +210,10 @@ impl<'a, A: Asset> SlotMut<'a, A> {
     }
 
     pub fn value(&mut self) -> SlotValue<&mut A> {
-        self.value_checked().unwrap()
+        self.try_value().unwrap()
     }
 
-    pub fn value_checked(&mut self) -> Result<SlotValue<&mut A>, SlotError> {
+    pub fn try_value(&mut self) -> Result<SlotValue<&mut A>, SlotError> {
         let dyn_slot = &mut *self.dyn_slot;
         let dyn_asset: &mut dyn Any = match dyn_slot {
             DynSlot::Loaded(dyn_asset) => dyn_asset,
