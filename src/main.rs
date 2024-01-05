@@ -1,6 +1,5 @@
 use std::time::Duration;
-use hecs_game::instruction::Instructor;
-use hecs_game::{Game, Stage, GameRunner, ExternalRequest, RunContext, Instruction, ScriptContext, instruction, VarValue};
+use hecs_game::{Game, Stage, GameRunner, ExternalRequest, RunContext, Instruction, ScriptContext, Instructor};
 use hecs::World;
 
 const TICK_DURATION: Duration = Duration::from_secs(1);
@@ -27,7 +26,6 @@ fn main() {
         std::thread::sleep(TICK_DURATION);
     }
 }
-
 
 
 fn start(_game: &mut Game, mut ctx: RunContext) {

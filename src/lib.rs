@@ -1,6 +1,7 @@
 mod asset;
 mod framework;
-pub mod instruction;
+mod instruction;
 
 pub use asset::*;
 pub use framework::*;
+pub use instruction::*;
