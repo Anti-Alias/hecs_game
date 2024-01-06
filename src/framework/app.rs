@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, VecDeque, vec_deque};
 use std::time::Duration;
 use log::warn;
 use vecmap::VecSet;
@@ -40,12 +40,14 @@ impl App {
         })
     }
 
+    pub fn tick_duration(&self) -> Duration { self.tick_duration }
+
     /**
      * Runs all per-frame [`Stage`]s.
      * If enough time has accumulated, each per-tick [`Stage`]s as well.
      * Good for client applications.
      */
-    pub fn run_frame(&mut self, delta: Duration) -> impl Iterator<Item = ExternalRequest> + '_ {
+    pub fn run_frame(&mut self, delta: Duration) -> vec_deque::Iter<'_, ExternalRequest> {
         log::trace!("----- TICK {} -----", self.tick);
         self.tick_accum += delta;
         self.external_requests.clear();
@@ -60,14 +62,14 @@ impl App {
         }
         self.run_stage(Stage::Render, delta);
         self.tick += 1;
-        return self.external_requests.iter().copied()
+        return self.external_requests.iter()
     }
 
     /**
      * Runs all per-frame [`Stage`]s and per-tick [`Stage`]s.
      * Good for server applications.
      */
-    pub fn run_tick(&mut self) -> impl Iterator<Item = ExternalRequest> + '_ {
+    pub fn run_tick(&mut self) -> vec_deque::Iter<'_, ExternalRequest> {
         self.run_frame(self.tick_duration)
     }
 
