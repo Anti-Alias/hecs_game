@@ -7,7 +7,7 @@ use crate::{Game, Script, ScriptWithId, ScriptId};
 /**
  * Adds logic to a [`Game`] by executing [`System`]s across it.
  * This happens when invoking run_tick() and run_frame().
-  */
+ */
 pub struct App {
     pub game: Game,                                     // Game to update state via systems.
     tick: u64,                                          // Current tick.
@@ -18,7 +18,7 @@ pub struct App {
     systems: HashMap<System, SystemMeta>,               // Systems that manipulate the state of the Game.
     enabled_systems: HashMap<Stage, VecSet<System>>,    // Subset of systems that are enabled.
     commands: VecDeque<Box<dyn Command>>,
-    runner_requests: VecDeque<RunnerRequest>,
+    app_requests: VecDeque<AppRequest>,
     external_requests: VecDeque<ExternalRequest>,
 }
 
@@ -35,7 +35,7 @@ impl App {
             systems: HashMap::new(),
             enabled_systems: HashMap::new(),
             commands: VecDeque::new(),
-            runner_requests: VecDeque::new(),
+            app_requests: VecDeque::new(),
             external_requests: VecDeque::new(),
         })
     }
@@ -82,7 +82,7 @@ impl App {
                 let ctx = RunContext {
                     script_seq: &mut self.script_seq,
                     commands: &mut self.commands,
-                    runner_requests: &mut self.runner_requests,
+                    app_requests: &mut self.app_requests,
                     external_requests: &mut self.external_requests,
                     delta,
                 };
@@ -96,7 +96,7 @@ impl App {
                 let ctx = RunContext {
                     script_seq: &mut self.script_seq,
                     commands: &mut self.commands,
-                    runner_requests: &mut self.runner_requests,
+                    app_requests: &mut self.app_requests,
                     external_requests: &mut self.external_requests,
                     delta,
                 };
@@ -105,13 +105,13 @@ impl App {
             });
         }
 
-        // Handles runner requests emitted by systems and scripts.
-        while let Some(runner_req) = self.runner_requests.pop_front() {
-            match runner_req {
-                RunnerRequest::EnableSystem(system)         => self.enable_system(system),
-                RunnerRequest::DisableSystem(runner)        => self.disable_system(runner),
-                RunnerRequest::StartScript { id, stage, script }  => self.run_script(id, stage, script),
-                RunnerRequest::StopScript(id)                   => self.stop_script(id),
+        // Handles app requests emitted by systems and scripts.
+        while let Some(app_request) = self.app_requests.pop_front() {
+            match app_request {
+                AppRequest::EnableSystem(system)         => self.enable_system(system),
+                AppRequest::DisableSystem(system)        => self.disable_system(system),
+                AppRequest::StartScript { id, stage, script }  => self.run_script(id, stage, script),
+                AppRequest::StopScript(id)                   => self.stop_script(id),
             }
         }
 
@@ -170,7 +170,7 @@ impl App {
 pub struct AppBuilder(App);
 impl AppBuilder {
 
-    /// Adds a runner to the stage specified.
+    /// Adds an app to the stage specified.
     pub fn system(mut self, stage: Stage, system: System, enabled: bool) -> Self {
         if self.0.systems.contains_key(&system) {
             panic!("Duplicate system {system:?}");
@@ -202,7 +202,7 @@ impl AppBuilder {
 pub struct RunContext<'a> {
     script_seq: &'a mut u64,
     commands: &'a mut VecDeque<Box<dyn Command>>,
-    runner_requests: &'a mut VecDeque<RunnerRequest>,
+    app_requests: &'a mut VecDeque<AppRequest>,
     external_requests: &'a mut VecDeque<ExternalRequest>,
     delta: Duration,
 }
@@ -228,7 +228,7 @@ impl<'a> RunContext<'a> {
         let id = ScriptId(*self.script_seq);
         *self.script_seq += 1;
         let script = script.into();
-        self.runner_requests.push_back(RunnerRequest::StartScript { id, stage, script });
+        self.app_requests.push_back(AppRequest::StartScript { id, stage, script });
         id
     }
 
@@ -236,21 +236,21 @@ impl<'a> RunContext<'a> {
      * Requests that a [`Script`] be stopped.
      */
     pub fn stop_script(&mut self, id: ScriptId) {
-        self.runner_requests.push_back(RunnerRequest::StopScript(id));
+        self.app_requests.push_back(AppRequest::StopScript(id));
     }
 
     /**
      * Requests that a [`System`] be enabled.
      */
-    pub fn enable_system(&mut self, runner: System) {
-        self.runner_requests.push_back(RunnerRequest::EnableSystem(runner));
+    pub fn enable_system(&mut self, system: System) {
+        self.app_requests.push_back(AppRequest::EnableSystem(system));
     }
 
     /**
      * Requests that a [`System`] be disabled.
      */
-    pub fn disable_system(&mut self, runner: System) {
-        self.runner_requests.push_back(RunnerRequest::DisableSystem(runner));
+    pub fn disable_system(&mut self, system: System) {
+        self.app_requests.push_back(AppRequest::DisableSystem(system));
     }
 
     /**
@@ -320,7 +320,7 @@ where
 /**
  * Command to leverage external functionality.
  */
-pub(crate) enum RunnerRequest {
+pub(crate) enum AppRequest {
     EnableSystem(System),
     DisableSystem(System),
     StartScript {

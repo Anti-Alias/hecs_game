@@ -6,7 +6,7 @@ const TICK_DURATION: Duration = Duration::from_secs(1);
 
 fn main() {
 
-    // Creates game and wraps it in a runner
+    // Creates game and wraps it in an App
     env_logger::init();
     let game = Game::builder()
         .domain(World::new())
@@ -16,7 +16,7 @@ fn main() {
         .system(Stage::PreUpdate, start, true)
         .build();
 
-    // Executes the runner in a loop
+    // Executes the app in a loop
     loop {
         for request in app.run_frame(TICK_DURATION) {
             match request {
