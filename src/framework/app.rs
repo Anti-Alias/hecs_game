@@ -6,8 +6,9 @@ use crate::{Game, Script, ScriptWithId, ScriptId};
 
 /**
  * Adds logic to a [`Game`] by executing [`System`]s across it.
- */
-pub struct GameRunner {
+ * This happens when invoking run_tick() and run_frame().
+  */
+pub struct App {
     pub game: Game,                                     // Game to update state via systems.
     tick: u64,                                          // Current tick.
     tick_accum: Duration,                               // Time accumulated for current tick.
@@ -21,10 +22,10 @@ pub struct GameRunner {
     external_requests: VecDeque<ExternalRequest>,
 }
 
-impl GameRunner {
+impl App {
 
-    pub fn builder(game: Game) -> GameRunnerBuilder {
-        GameRunnerBuilder(Self {
+    pub fn builder(game: Game) -> AppBuilder {
+        AppBuilder(Self {
             game,
             tick: 1,
             tick_accum: Duration::ZERO,
@@ -166,8 +167,8 @@ impl GameRunner {
     }
 }
 
-pub struct GameRunnerBuilder(GameRunner);
-impl GameRunnerBuilder {
+pub struct AppBuilder(App);
+impl AppBuilder {
 
     /// Adds a runner to the stage specified.
     pub fn system(mut self, stage: Stage, system: System, enabled: bool) -> Self {
@@ -193,7 +194,7 @@ impl GameRunnerBuilder {
         self
     }
 
-    pub fn build(self) -> GameRunner {
+    pub fn build(self) -> App {
         self.0
     }
 }

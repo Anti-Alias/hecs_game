@@ -1,5 +1,5 @@
 use std::time::Duration;
-use hecs_game::{Game, Stage, GameRunner, ExternalRequest, RunContext, Instruction, ScriptContext, Instructor};
+use hecs_game::{Game, Stage, App, ExternalRequest, RunContext, Instruction, ScriptContext, Instructor};
 use hecs::World;
 
 const TICK_DURATION: Duration = Duration::from_secs(1);
@@ -11,14 +11,14 @@ fn main() {
     let game = Game::builder()
         .domain(World::new())
         .build();
-    let mut runner = GameRunner::builder(game)
+    let mut app = App::builder(game)
         .tick_duration(TICK_DURATION)
         .system(Stage::PreUpdate, start, true)
         .build();
 
     // Executes the runner in a loop
     loop {
-        for request in runner.run_frame(TICK_DURATION) {
+        for request in app.run_frame(TICK_DURATION) {
             match request {
                 ExternalRequest::Quit => break,
             }

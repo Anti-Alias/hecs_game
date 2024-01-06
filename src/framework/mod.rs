@@ -1,7 +1,7 @@
 mod game;
-mod runner;
+mod app;
 mod script;
 
 pub use game::*;
-pub use runner::*;
+pub use app::*;
 pub use script::*;
