@@ -12,7 +12,7 @@ pub struct Input {
 impl Input {
     pub fn new() -> Self {
         Self {
-            keyboard: ButtonState::<KeyCode>::new()
+            keyboard: ButtonState::<KeyCode>::new() 
         }
     }
 

@@ -12,7 +12,7 @@ pub trait Asset: Any + Send + Sync {
      * If at least one is loading and none are failed, status is [`HandleStatus::Loading`].
      * If all are loaded, status is loaded [`HandleStatus::Loaded`].
      */
-    fn dependency_status(&self) -> HandleStatus {
+    fn status(&self) -> HandleStatus {
         return HandleStatus::Loaded
     }
 }

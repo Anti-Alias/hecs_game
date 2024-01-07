@@ -97,7 +97,6 @@ impl From<&str> for VarKey {
     }
 }
 
-
 /**
  * Some task that runs for one or more game ticks.
  */

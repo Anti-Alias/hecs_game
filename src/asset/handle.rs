@@ -16,7 +16,7 @@ pub(crate) struct DynHandle(pub(crate) Arc<RwLock<DynSlot>>);
  */
 pub(crate) enum DynSlot {
     Loading,
-    Loaded(Box<dyn Asset>),
+    Loaded(Box<dyn Any + Send + Sync>),
     Failed,
 }
 
@@ -176,7 +176,7 @@ impl<'a, A: Asset> Slot<'a, A> {
         let asset = dyn_asset
             .downcast_ref::<A>()
             .ok_or(SlotError::IncorrectAssetType)?;
-        if asset.dependency_status() == HandleStatus::Loading {
+        if asset.status() == HandleStatus::Loading {
             return Ok(SlotValue::Loading);
         }
         Ok(SlotValue::Loaded(asset))

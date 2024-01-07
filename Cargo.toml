@@ -7,9 +7,12 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.77"
+bitflags = "2.4.1"
+bytemuck = { version = "1.14.0", features = ["derive"] }
 derive_more = "0.99.17"
 env_logger = "0.10.1"
 fxhash = "0.2.1"
+glam = { version = "0.25.0", features = ["bytemuck"] }
 hecs = "0.10.4"
 log = "0.4.20"
 pollster = "0.3.0"

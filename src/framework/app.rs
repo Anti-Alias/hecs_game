@@ -24,9 +24,13 @@ pub struct App {
 
 impl App {
 
-    pub fn builder(game: Game) -> AppBuilder {
-        AppBuilder(Self {
-            game,
+    pub fn new(config: AppConfig) -> Self {
+        config.0
+    }
+
+    pub fn config() -> AppConfig {
+        AppConfig(Self {
+            game: Game::new(),
             tick: 1,
             tick_accum: Duration::ZERO,
             tick_duration: Duration::from_secs_f64(1.0/60.0),
@@ -36,7 +40,7 @@ impl App {
             enabled_systems: HashMap::new(),
             commands: VecDeque::new(),
             app_requests: VecDeque::new(),
-            external_requests: VecDeque::new(),
+            external_requests: VecDeque::new(),            
         })
     }
 
@@ -169,11 +173,17 @@ impl App {
     }
 }
 
-pub struct AppBuilder(App);
-impl AppBuilder {
 
-    /// Adds an app to the stage specified.
-    pub fn system(mut self, stage: Stage, system: System, enabled: bool) -> Self {
+pub struct AppConfig(App);
+impl AppConfig {
+
+    /**
+     * Reference to underlying [`Game`].
+     */
+    pub fn game(&mut self) -> &mut Game { &mut self.0.game }
+
+    /// Adds a system to the stage specified.
+    pub fn add_system(&mut self, stage: Stage, system: System, enabled: bool) -> &mut Self {
         if self.0.systems.contains_key(&system) {
             panic!("Duplicate system {system:?}");
         }
@@ -188,16 +198,43 @@ impl AppBuilder {
         self
     }
 
-    /**
-     * Sets duration of a tick. Defaults to 1/60 seconds.
-     */
-    pub fn tick_duration(mut self, tick_duration: Duration) -> Self {
-        self.0.tick_duration = tick_duration;
+    pub fn with_plugin(mut self, mut plugin: impl Plugin) -> Self {
+        plugin.install(&mut self);
         self
     }
 
-    pub fn build(self) -> App {
-        self.0
+    pub fn add_plugin(&mut self, mut plugin: impl Plugin) -> &mut Self {
+        plugin.install(self);
+        self
+    }
+
+    pub fn set_tick_duration(&mut self, tick_duration: Duration) {
+        self.0.tick_duration = tick_duration;
+    }
+
+    /// Finishes building [`App`] and immediately runs it.
+    pub fn run(self, mut runner: impl AppRunner) {
+        runner.run(self);
+    }
+}
+
+/// Responsible for running an [`App`].
+pub trait AppRunner {
+    fn run(&mut self, config: AppConfig);
+}
+
+/**
+ * Some function or object that adds functionality to an [`App`].
+ */
+pub trait Plugin {
+    fn install(&mut self, config: &mut AppConfig);
+}
+
+impl<F> Plugin for F
+where F: FnMut(&mut AppConfig)
+{
+    fn install(&mut self, config: &mut AppConfig) {
+        self(config);
     }
 }
 

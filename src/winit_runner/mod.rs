@@ -1,26 +1,24 @@
-use std::time::SystemTime;
+use std::time::{SystemTime, Duration};
 use winit::event::{WindowEvent, Event, ElementState};
 use winit::event_loop::{EventLoop, EventLoopWindowTarget};
 use winit::keyboard::PhysicalKey;
 use winit::window::{WindowBuilder, Window};
-use crate::{App, Input, ExternalRequest, GraphicsState};
+use crate::{App, Input, ExternalRequest, GraphicsState, AppConfig, AppRunner};
 
 /**
  * Opens a window and uses it to power an underlying [`App`].
  * For rendering applications on Windows, Linux and OSX.
  */
-pub struct WinitApp {
-    game_runner: App,
+pub struct WinitRunner {
     frame_rate: u32,
     window_width: u32,
     window_height: u32,
 }
 
-impl WinitApp {
+impl WinitRunner {
     
-    pub fn new(game_runner: App) -> Self {
+    pub fn new() -> Self {
         Self {
-            game_runner,
             frame_rate: 60,
             window_width: 16*50,
             window_height: 9*50,
@@ -39,23 +37,31 @@ impl WinitApp {
         self.window_height = height;
         self
     }
+}
 
-    pub fn run(mut self) {
-
-        // Sets up event loop and window
+impl AppRunner for WinitRunner {
+    fn run(&mut self, mut config: AppConfig) {
+        
+        // Opens window and finishes configuring app
         let event_loop = EventLoop::new().unwrap();
         let window = WindowBuilder::new().build(&event_loop).unwrap();
-
-        // Configures game
-        let game = &mut self.game_runner.game;
-        game.init(|| Input::new());
-        game.init(|| GraphicsState::new(&window));
+        config.game()
+            .init(|| Input::new())
+            .init(|| GraphicsState::new(&window));
 
         // Starts game loop
+        let mut app = App::new(config);
         let mut last_update: Option<SystemTime> = None;
         event_loop.run(move |event, target| {
             match event {
-                Event::WindowEvent { event, .. } => handle_window_event(event, &window, target, &mut self.game_runner, &mut last_update),
+                Event::WindowEvent { event, .. } => handle_window_event(
+                    event,
+                    &window,
+                    target,
+                    &mut app,
+                    &window,
+                    &mut last_update
+                ),
                 _ => {}
             }
         }).unwrap();
@@ -66,30 +72,31 @@ fn handle_window_event(
     event: WindowEvent,
     _window: &Window,
     target: &EventLoopWindowTarget<()>,
-    runner: &mut App,
+    app: &mut App,
+    window: &Window,
     last_update: &mut Option<SystemTime>,
 ) {
     match event {
         WindowEvent::Resized(size) => {
-            let mut graphics_state = runner.game.get_mut::<GraphicsState>();
-            graphics_state.resize(size.width, size.height)
+            app.game
+                .get::<&mut GraphicsState>()
+                .resize(size.width, size.height)
         },
         WindowEvent::KeyboardInput { event, .. } => {
-            let mut input = runner.game.get_mut::<Input>();
             let key_code = match event.physical_key {
                 PhysicalKey::Code(key_code) => key_code,
                 PhysicalKey::Unidentified(_) => return,
             };
+            let mut input = app.game.get::<&mut Input>();
             match event.state {
                 ElementState::Pressed => input.keyboard.press(key_code),
                 ElementState::Released => input.keyboard.release(key_code),
             }
         },
         WindowEvent::RedrawRequested => {
-            run_game_logic(runner, last_update, target);
-            runner.game
-                .get_mut::<Input>()
-                .sync_previous_state();
+            run_game_logic(app, last_update, target);               // Game logic
+            app.game.get::<&mut Input>().sync_previous_state();     // Sync Input with previous state
+            window.request_redraw();                                // Submits request to render next frame
         },
         WindowEvent::CloseRequested => target.exit(),
         _ => {}
@@ -97,21 +104,20 @@ fn handle_window_event(
 }
 
 fn run_game_logic<'a>(
-    runner: &'a mut App,
+    app: &'a mut App,
     last_update: &mut Option<SystemTime>,
     target: &EventLoopWindowTarget<()>,
 ) {
+    // Computes delta since last frame.
     let now = SystemTime::now();
-    let requests = match *last_update {
-        Some(last) => {
-            let delta = now.duration_since(last).unwrap();
-            runner.run_frame(delta)
-        },
-        None => runner.run_tick(),
+    let delta = match *last_update {
+        Some(last_update) => now.duration_since(last_update).unwrap(),
+        None => Duration::ZERO,
     };
     *last_update = Some(now);
-    
-    for request in requests {
+
+    // Runs logic and handles outgoing requests
+    for request in app.run_frame(delta) {
         match request {
             ExternalRequest::Quit => target.exit(),
         }

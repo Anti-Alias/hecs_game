@@ -1,5 +1,4 @@
 use std::sync::Arc;
-
 use winit::window::Window;
 use wgpu::*;
 
@@ -51,5 +50,20 @@ impl GraphicsState {
         self.surface_config.width = width.max(1);
         self.surface_config.height = height.max(1);
         self.surface.configure(&self.device, &self.surface_config);
+    }
+
+    pub fn device(&self) -> &Arc<Device> {
+        &self.device
+    }
+
+    pub fn queue(&self) -> &Arc<Queue> {
+        &self.queue
+    }
+
+    /**
+     * Current texture view to render on.
+    */
+    pub fn surface(&self) -> &Surface {
+        &self.surface
     }
 }

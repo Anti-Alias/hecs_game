@@ -9,10 +9,11 @@ pub struct Game {
 }
 
 impl Game {
-    pub fn builder() -> GameBuilder {
-        GameBuilder(Self {
-            domains: HashMap::new(),
-        })
+
+    pub fn new() -> Self {
+        Self {
+            domains: HashMap::new()
+        }
     }
 
     /// Adds a domain to the game.
@@ -36,41 +37,24 @@ impl Game {
         self.domains.contains_key(&TypeId::of::<D>())
     }
 
-    /// Fetches a domain by type.
-    pub fn get<D: Domain>(&self) -> Ref<'_, D> {
-        self.try_get().unwrap()
+    pub fn get<'a, E0: DomainExtractor<'a>>(&'a self) -> E0::Data {
+        E0::extract(self)
+    }
+
+    pub fn all<'a, S: DomainSet<'a>>(&'a self) -> S::Data {
+        S::extract(self)
     }
 
     /// Fetches a domain by type.
-    pub fn get_mut<D: Domain>(&mut self) -> RefMut<'_, D> {
-        self.try_get_mut().unwrap()
+    pub fn get_cell<D: Domain>(&self) -> &RefCell<D> {
+        self.try_get_cell().unwrap()
     }
 
     /// Fetches a domain by type.
-    pub fn try_get<D: Domain>(&self) -> Option<Ref<'_, D>> {
-        let domain = self.domains.get(&TypeId::of::<D>())?;
-        domain
-            .downcast_ref::<RefCell<D>>()
-            .map(|ref_cell| ref_cell.borrow())
-    }
-
-    /// Fetches a domain by type.
-    pub fn try_get_mut<D: Domain>(&mut self) -> Option<RefMut<'_, D>> {
-        let domain = self.domains.get_mut(&TypeId::of::<D>())?;
-        domain
-            .downcast_mut::<RefCell<D>>()
-            .map(|ref_cell| ref_cell.borrow_mut())
-    }
-}
-
-pub struct GameBuilder(Game);
-impl GameBuilder {
-    pub fn domain<D: Domain>(mut self, domain: D) -> Self {
-        self.0.domains.insert(TypeId::of::<D>(), Box::new(domain));
-        self
-    }
-    pub fn build(self) -> Game {
-        self.0
+    pub fn try_get_cell<'a, D: Domain>(&self) -> Option<&RefCell<D>> {
+        let domain_id = TypeId::of::<D>();
+        let any = self.domains.get(&domain_id)?;
+        any.downcast_ref::<RefCell<D>>()
     }
 }
 
@@ -78,5 +62,229 @@ impl GameBuilder {
  * A place where logic of a certain variety is performed.
  * IE: Physics, Graphics, logic etc.
  */
-pub trait Domain: Any + Send + Sync {}
-impl<D: Any + Send + Sync> Domain for D {}
+pub trait Domain: Any {}
+impl<D: Any> Domain for D {}
+
+
+pub trait DomainSet<'a> {
+    type Data;
+    fn extract(game: &'a Game) -> Self::Data;
+}
+
+impl<'a, E0> DomainSet<'a> for (E0,)
+where
+    E0: DomainExtractor<'a>,
+{
+    type Data = (E0::Data,);
+    fn extract(game: &'a Game) -> Self::Data {
+        (E0::extract(game),)
+    }
+}
+
+impl<'a, E0, E1> DomainSet<'a> for (E0, E1)
+where
+    E0: DomainExtractor<'a>,
+    E1: DomainExtractor<'a>
+{
+    type Data = (
+        E0::Data,
+        E1::Data,
+    );
+    fn extract(game: &'a Game) -> Self::Data {
+        (
+            E0::extract(game),
+            E1::extract(game),
+        )
+    }
+}
+
+impl<'a, E0, E1, E2> DomainSet<'a> for (E0, E1, E2)
+where
+    E0: DomainExtractor<'a>,
+    E1: DomainExtractor<'a>,
+    E2: DomainExtractor<'a>,
+{
+    type Data = (
+        E0::Data,
+        E1::Data,
+        E2::Data,
+    );
+    fn extract(game: &'a Game) -> Self::Data {
+        (
+            E0::extract(game),
+            E1::extract(game),
+            E2::extract(game),
+        )
+    }
+}
+
+impl<'a, E0, E1, E2, E3> DomainSet<'a> for (E0, E1, E2, E3)
+where
+    E0: DomainExtractor<'a>,
+    E1: DomainExtractor<'a>,
+    E2: DomainExtractor<'a>,
+    E3: DomainExtractor<'a>,
+{
+    type Data = (
+        E0::Data,
+        E1::Data,
+        E2::Data,
+        E3::Data,
+    );
+    fn extract(game: &'a Game) -> Self::Data {
+        (
+            E0::extract(game),
+            E1::extract(game),
+            E2::extract(game),
+            E3::extract(game),
+        )
+    }
+}
+
+impl<'a, E0, E1, E2, E3, E4> DomainSet<'a> for (E0, E1, E2, E3, E4)
+where
+    E0: DomainExtractor<'a>,
+    E1: DomainExtractor<'a>,
+    E2: DomainExtractor<'a>,
+    E3: DomainExtractor<'a>,
+    E4: DomainExtractor<'a>,
+{
+    type Data = (
+        E0::Data,
+        E1::Data,
+        E2::Data,
+        E3::Data,
+        E4::Data,
+    );
+    fn extract(game: &'a Game) -> Self::Data {
+        (
+            E0::extract(game),
+            E1::extract(game),
+            E2::extract(game),
+            E3::extract(game),
+            E4::extract(game),
+        )
+    }
+}
+
+impl<'a, E0, E1, E2, E3, E4, E5> DomainSet<'a> for (E0, E1, E2, E3, E4, E5)
+where
+    E0: DomainExtractor<'a>,
+    E1: DomainExtractor<'a>,
+    E2: DomainExtractor<'a>,
+    E3: DomainExtractor<'a>,
+    E4: DomainExtractor<'a>,
+    E5: DomainExtractor<'a>,
+{
+    type Data = (
+        E0::Data,
+        E1::Data,
+        E2::Data,
+        E3::Data,
+        E4::Data,
+        E5::Data,
+    );
+    fn extract(game: &'a Game) -> Self::Data {
+        (
+            E0::extract(game),
+            E1::extract(game),
+            E2::extract(game),
+            E3::extract(game),
+            E4::extract(game),
+            E5::extract(game),
+        )
+    }
+}
+
+impl<'a, E0, E1, E2, E3, E4, E5, E6> DomainSet<'a> for (E0, E1, E2, E3, E4, E5, E6)
+where
+    E0: DomainExtractor<'a>,
+    E1: DomainExtractor<'a>,
+    E2: DomainExtractor<'a>,
+    E3: DomainExtractor<'a>,
+    E4: DomainExtractor<'a>,
+    E5: DomainExtractor<'a>,
+    E5: DomainExtractor<'a>,
+    E6: DomainExtractor<'a>,
+{
+    type Data = (
+        E0::Data,
+        E1::Data,
+        E2::Data,
+        E3::Data,
+        E4::Data,
+        E5::Data,
+        E6::Data,
+    );
+    fn extract(game: &'a Game) -> Self::Data {
+        (
+            E0::extract(game),
+            E1::extract(game),
+            E2::extract(game),
+            E3::extract(game),
+            E4::extract(game),
+            E5::extract(game),
+            E6::extract(game),
+        )
+    }
+}
+
+impl<'a, E0, E1, E2, E3, E4, E5, E6, E7> DomainSet<'a> for (E0, E1, E2, E3, E4, E5, E6, E7)
+where
+    E0: DomainExtractor<'a>,
+    E1: DomainExtractor<'a>,
+    E2: DomainExtractor<'a>,
+    E3: DomainExtractor<'a>,
+    E4: DomainExtractor<'a>,
+    E5: DomainExtractor<'a>,
+    E5: DomainExtractor<'a>,
+    E6: DomainExtractor<'a>,
+    E7: DomainExtractor<'a>,
+{
+    type Data = (
+        E0::Data,
+        E1::Data,
+        E2::Data,
+        E3::Data,
+        E4::Data,
+        E5::Data,
+        E6::Data,
+        E7::Data,
+    );
+    fn extract(game: &'a Game) -> Self::Data {
+        (
+            E0::extract(game),
+            E1::extract(game),
+            E2::extract(game),
+            E3::extract(game),
+            E4::extract(game),
+            E5::extract(game),
+            E6::extract(game),
+            E7::extract(game),
+        )
+    }
+}
+
+
+pub trait DomainExtractor<'a> {
+    type Data;
+    fn extract(game: &'a Game) -> Self::Data;
+}
+
+impl<'a, D0> DomainExtractor<'a> for &'a D0
+where D0: Domain {
+    type Data = Ref<'a, D0>;
+    fn extract(game: &'a Game) -> Self::Data {
+        let d0 = game.get_cell::<D0>();
+        d0.borrow()
+    }
+}
+
+impl<'a, D0> DomainExtractor<'a> for &'a mut D0
+where D0: Domain {
+    type Data = RefMut<'a, D0>;
+    fn extract(game: &'a Game) -> Self::Data {
+        let d0 = game.get_cell::<D0>();
+        d0.borrow_mut()
+    }
+}

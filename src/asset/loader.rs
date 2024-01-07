@@ -12,7 +12,7 @@ pub trait Loader: Send + Sync + 'static {
 }
 
 /**
- * Dynamic variant of [`Loader`] that allows for loading
+ * Dynamic wrapper around [`Loader`].
  */
 pub(crate) trait DynLoader: Send + Sync + 'static {
     fn load(&self, bytes: &[u8], extension: &str, dependencies: Dependencies) -> anyhow::Result<Box<dyn Any>>;
