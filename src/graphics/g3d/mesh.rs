@@ -26,6 +26,7 @@ impl MeshLayout {
 /**
  * A 3D mesh.
 */
+#[derive(Clone, Default)]
 pub struct Mesh {
     pub indices:    Vec<u32>,
     pub positions:  Vec<Vec3>,

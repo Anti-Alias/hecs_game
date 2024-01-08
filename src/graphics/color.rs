@@ -1,12 +1,18 @@
 use bytemuck::{Pod, Zeroable};
 
 #[repr(C)]
-#[derive(Copy, Clone, PartialEq, Default, Debug, Pod, Zeroable)]
+#[derive(Copy, Clone, PartialEq, Debug, Pod, Zeroable)]
 pub struct Color {
     pub r: f32,
     pub g: f32,
     pub b: f32,
     pub a: f32,
+}
+
+impl Default for Color {
+    fn default() -> Self {
+        Self::WHITE
+    }
 }
 
 impl Color {

@@ -1,7 +1,10 @@
 use std::any::Any;
+use std::cmp::Ordering;
 use std::marker::PhantomData;
 use std::sync::{RwLock, Arc, RwLockReadGuard, RwLockWriteGuard};
+use std::hash::{Hash, Hasher};
 use derive_more::*;
+use uuid::Uuid;
 use crate::{Asset, AssetManager};
 
 
@@ -30,27 +33,34 @@ impl DynSlot {
     }
 }
 
-/// ID for a [`Handle`] for used [`PartialEq`].
-pub(crate) type HandleId = u64;
-
 /**
  * Shareable container of a [`Slot`], which itself may contain an [`Asset`].
  */
 pub struct Handle<A: Asset> {
-    id: HandleId,
-    dyn_handle: DynHandle,
-    manager: AssetManager,
-    phantom: PhantomData<A>,
+    variant: HandleVariant,     // Managed/unmanaged specific data
+    dyn_handle: DynHandle,      // Underlying dynamic handle
+    phantom: PhantomData<A>,    // ZST marker
 }
 impl<A: Asset> Handle<A> {
 
-    /// Creates a handle in its initial loading state.
-    /// To be filled out later by a [`Loader`](crate::Loader).
-    pub(crate) fn new(id: HandleId, manager: AssetManager) -> Self {
+    /// Creates an "unmanaged" handle with contents created programmatically.
+    pub fn new(asset: A) -> Self {
         Self {
-            id,
+            variant: HandleVariant::Unmanaged { id: Uuid::new_v4() },
+            dyn_handle: DynHandle(Arc::new(RwLock::new(DynSlot::Loaded(Box::new(asset))))),
+            phantom: PhantomData,
+        }
+    }
+
+    /// Creates a "managed" handle in its initial loading state.
+    /// To be filled out later by a [`Loader`](crate::Loader).
+    pub(crate) fn loading(id: u64, manager: AssetManager) -> Self {
+        Self {
+            variant: HandleVariant::Managed {
+                id,
+                manager,
+            },
             dyn_handle: DynHandle(Arc::new(RwLock::new(DynSlot::Loading))),
-            manager,
             phantom: PhantomData,
         }
     }
@@ -88,11 +98,10 @@ impl<A: Asset> Handle<A> {
         *dyn_slot = DynSlot::Loaded(Box::new(asset));
     }
 
-    pub(crate) fn from_dyn(id: HandleId, dyn_handle: DynHandle, manager: AssetManager) -> Self {
+    pub(crate) fn from_dyn(id: u64, dyn_handle: DynHandle, manager: AssetManager) -> Self {
         Self {
-            id,
+            variant: HandleVariant::Managed { id, manager },
             dyn_handle,
-            manager,
             phantom: PhantomData,
         }
     }
@@ -111,7 +120,9 @@ impl<A: Asset> Drop for Handle<A> {
         // If count is 2, only this Handle and the AssetManager are keeping track of the asset.
         // AssetManager should remove the handle in this case.
         if self.strong_count() == 2 {
-            self.manager.remove_handle(self.id);
+            if let HandleVariant::Managed { id, manager } = &mut self.variant {
+                manager.remove_handle(*id);
+            }
         }
     }
 }
@@ -119,9 +130,8 @@ impl<A: Asset> Drop for Handle<A> {
 impl<A: Asset> Clone for Handle<A> {
     fn clone(&self) -> Self {
         Self {
-            id: self.id,
+            variant: self.variant.clone(),
             dyn_handle: self.dyn_handle.clone(),
-            manager: self.manager.clone(),
             phantom: PhantomData,
         }
     }
@@ -129,23 +139,63 @@ impl<A: Asset> Clone for Handle<A> {
 
 impl <A: Asset> PartialEq for Handle<A> {
     fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-    }
-}
-
-impl<A: Asset> Ord for Handle<A> {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.id.cmp(&other.id)
-    }
-}
-
-impl<A: Asset> PartialOrd for Handle<A> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.id.partial_cmp(&other.id)
+        match (&self.variant, &other.variant) {
+            (HandleVariant::Managed { id, .. }, HandleVariant::Managed { id: other_id, .. })    => id == other_id,
+            (HandleVariant::Managed { .. }, HandleVariant::Unmanaged { .. })                    => false,
+            (HandleVariant::Unmanaged { .. }, HandleVariant::Managed { .. })                    => false,
+            (HandleVariant::Unmanaged { id }, HandleVariant::Unmanaged { id: other_id })        => id == other_id,
+        }
     }
 }
 
 impl<A: Asset> Eq for Handle<A> {}
+
+impl<A: Asset> PartialOrd for Handle<A> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match (&self.variant, &other.variant) {
+            (HandleVariant::Managed { id, .. }, HandleVariant::Managed { id: other_id, .. })    => id.partial_cmp(other_id),
+            (HandleVariant::Managed { .. }, HandleVariant::Unmanaged { .. })                    => Some(Ordering::Less),
+            (HandleVariant::Unmanaged { .. }, HandleVariant::Managed { .. })                    => Some(Ordering::Greater),
+            (HandleVariant::Unmanaged { id }, HandleVariant::Unmanaged { id: other_id })        => id.partial_cmp(other_id),
+        }
+    }
+}
+
+impl<A: Asset> Ord for Handle<A> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (&self.variant, &other.variant) {
+            (HandleVariant::Managed { id, .. }, HandleVariant::Managed { id: other_id, .. })    => id.cmp(other_id),
+            (HandleVariant::Managed { .. }, HandleVariant::Unmanaged { .. })                    => Ordering::Less,
+            (HandleVariant::Unmanaged { .. }, HandleVariant::Managed { .. })                    => Ordering::Greater,
+            (HandleVariant::Unmanaged { id }, HandleVariant::Unmanaged { id: other_id })        => id.cmp(other_id),
+        }
+    }
+}
+
+impl <A: Asset> Hash for Handle<A> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self.variant {
+            HandleVariant::Managed { id, .. } => id.hash(state),
+            HandleVariant::Unmanaged { id } => id.hash(state),
+        }
+    }
+}
+
+/**
+ * Data specific to managed or unmanaged handles.
+ */
+#[derive(Clone)]
+pub enum HandleVariant {
+    /// Handle stored in an [`AssetManager`].
+    Managed {
+        id: u64,
+        manager: AssetManager,
+    },
+    /// Handle created programmatically.
+    Unmanaged {
+        id: Uuid,
+    }
+}
 
 /**
  * Read-only slot.

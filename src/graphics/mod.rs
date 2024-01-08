@@ -2,11 +2,13 @@ mod state;
 mod g3d;
 mod color;
 mod shader;
+mod scene;
 
 pub use state::*;
 pub use g3d::*;
 pub use color::*;
 pub use shader::*;
+pub use scene::*;
 
 use wgpu::{TextureViewDescriptor, CommandEncoderDescriptor, RenderPassDescriptor, RenderPassColorAttachment, Operations, LoadOp, Color as WgpuColor, StoreOp};
 use crate::{RunContext, Game, AppConfig, Stage};
@@ -23,7 +25,7 @@ pub fn graphics_plugin(config: &mut AppConfig) {
 fn render(game: &mut Game, _ctx: RunContext) {
     
     // Extracts resources for rendering
-    let (graphics_state, g3d) = game.all::<(&GraphicsState, &G3D)>();
+    let (graphics_state, mut g3d) = game.all::<(&GraphicsState, &mut G3D)>();
     let surface_tex = match graphics_state.surface().get_current_texture() {
         Ok(surface_tex) => surface_tex,
         Err(err) => {
@@ -32,7 +34,7 @@ fn render(game: &mut Game, _ctx: RunContext) {
         }
     };
 
-    // Render pass
+    // Encodes rendering commands
     let view = surface_tex.texture.create_view(&TextureViewDescriptor::default());
     let mut encoder = graphics_state.device().create_command_encoder(&CommandEncoderDescriptor::default());
     {
@@ -58,6 +60,7 @@ fn render(game: &mut Game, _ctx: RunContext) {
         g3d.render(&mut pass, &graphics_state);
     }
     
+    // Submits encoded commands
     let commands = [encoder.finish()];
     graphics_state.queue().submit(commands);
     surface_tex.present();

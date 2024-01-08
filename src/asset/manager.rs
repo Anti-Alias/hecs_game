@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use derive_more::{Error, Display};
-use crate::{Handle, Protocol, PathParts, Asset, Dependencies, DynLoader, Loader, HandleId, DynHandle};
+use crate::{Handle, Protocol, PathParts, Asset, Dependencies, DynLoader, Loader, DynHandle};
 
 /**
  * Central location for loading [`Asset`]s located in files.
@@ -50,7 +50,7 @@ impl AssetManager {
             }
             let protocol = store.get_protocol(&path_parts.protocol)?;
             let dyn_loader = store.get_loader(&path_parts.extension)?;
-            let handle = Handle::<A>::new(handle_id, self.clone());
+            let handle = Handle::<A>::loading(handle_id, self.clone());
             store.insert_handle(handle_id, handle.to_dyn());
             (handle, protocol, path_parts, dyn_loader)
         };
@@ -90,7 +90,7 @@ impl AssetManager {
 
     /// Removes a handle stored internally.
     /// Called when the last [`Handle`] to an [`Asset`] gets dropped.
-    pub(crate) fn remove_handle(&self, handle_id: HandleId) {
+    pub(crate) fn remove_handle(&self, handle_id: u64) {
         let mut store = self.0.write().unwrap();
         store.handles.remove(&handle_id);
     }
@@ -142,7 +142,7 @@ struct Store {
     base_path:              String,
     default_protocol:       Option<String>,
     protocols:              HashMap<String, Arc<dyn Protocol>>,
-    handles:                HashMap<HandleId, DynHandle>,
+    handles:                HashMap<u64, DynHandle>,
     extensions_to_loaders:  HashMap<String, usize>,
     loaders:                Vec<Arc<dyn DynLoader>>,
 }

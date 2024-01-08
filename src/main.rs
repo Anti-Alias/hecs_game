@@ -10,7 +10,6 @@ fn main() {
         .run(WinitRunner::new());
 }
 
-
 fn plugin(app: &mut AppConfig) {
     app.set_tick_duration(TICK_DURATION);
     app.add_plugin(core_plugin);
