@@ -1,13 +1,17 @@
 mod asset;
 mod framework;
 mod instruction;
-mod winit_runner;
+mod window;
 mod input;
 mod graphics;
+mod client;
+mod core;
 
 pub use asset::*;
 pub use framework::*;
 pub use instruction::*;
-pub use winit_runner::*;
+pub use window::*;
 pub use input::*;
 pub use graphics::*;
+pub use client::*;
+pub use ::core::*;

@@ -6,8 +6,8 @@ use wgpu::*;
  * Domain that stores WGPU primitives needed to do any and all graphics operations.
  */
 pub struct GraphicsState {
-    device: Arc<Device>,
-    queue: Arc<Queue>,
+    pub device: Arc<Device>,
+    pub queue: Arc<Queue>,
     surface: Surface,
     surface_config: SurfaceConfiguration,
 }
@@ -52,18 +52,14 @@ impl GraphicsState {
         self.surface.configure(&self.device, &self.surface_config);
     }
 
-    pub fn device(&self) -> &Arc<Device> {
-        &self.device
-    }
-
-    pub fn queue(&self) -> &Arc<Queue> {
-        &self.queue
-    }
-
     /**
      * Current texture view to render on.
     */
     pub fn surface(&self) -> &Surface {
         &self.surface
+    }
+
+    pub fn surface_config(&self) -> &SurfaceConfiguration {
+        &self.surface_config
     }
 }

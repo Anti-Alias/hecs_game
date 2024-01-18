@@ -1,9 +1,10 @@
 use std::mem::size_of;
 use bytemuck::bytes_of;
-use wgpu::{VertexBufferLayout, VertexStepMode, VertexAttribute, VertexFormat, Buffer};
+use wgpu::util::{DeviceExt, BufferInitDescriptor};
+use wgpu::{VertexBufferLayout, VertexStepMode, VertexAttribute, VertexFormat, Buffer, Device, BufferUsages, IndexFormat};
 use glam::{Vec3, Vec2};
 use bitflags::bitflags;
-use crate::{Color, ShaderDefs};
+use crate::{Color, ShaderPreprocessor};
 
 /// Similar to a [`VertexBufferLayout`], but attributes are stored in a Vec rather than a slice.
 /// Needed for generating layouts dynamically.
@@ -14,7 +15,7 @@ pub struct MeshLayout {
 }
 
 impl MeshLayout {
-    pub fn as_wgpu(&self) -> VertexBufferLayout<'_> {
+    pub fn as_vertex_layout(&self) -> VertexBufferLayout<'_> {
         VertexBufferLayout {
             array_stride: self.array_stride,
             step_mode: VertexStepMode::Vertex,
@@ -73,11 +74,27 @@ impl Mesh {
         variant
     }
 
+    /// Clears all buffers.
+    pub fn clear(&mut self) {
+        self.indices.clear();
+        self.positions.clear();
+        if let Some(colors) = &mut self.colors {
+            colors.clear();
+        }
+        if let Some(normals) = &mut self.normals {
+            normals.clear();
+        }
+        if let Some(uvs) = &mut self.uvs {
+            uvs.clear();
+        }
+    }
+
     /**
      * Interleaves vertex data into a single packed byte array.
      */
-    pub fn pack_vertices(&self, vertex_data: &mut Vec<u8>) {
+    fn vertex_bytes(&self) -> Vec<u8> {
         self.check_vertices();
+        let mut vertex_data = Vec::with_capacity(self.vertex_count() * self.vertex_size());
         let positions = &self.positions;
         for i in 0..positions.len() {
 
@@ -103,21 +120,31 @@ impl Mesh {
                 vertex_data.extend_from_slice(bytes);
             }
         }
+        vertex_data
     }
 
-    /// Clears all buffers.
-    pub fn clear(&mut self) {
-        self.indices.clear();
-        self.positions.clear();
-        if let Some(colors) = &mut self.colors {
-            colors.clear();
+    fn index_bytes(&self) -> &[u8] {
+        &bytemuck::cast_slice(&self.indices)
+    }
+
+    /// Number of vertices stored.
+    fn vertex_count(&self) -> usize {
+        self.positions.len()
+    }
+
+    /// Size of each vertex in bytes.
+    fn vertex_size(&self) -> usize {
+        let mut size = Mesh::POSITION_SIZE;
+        if self.colors.is_some() {
+            size += Mesh::COLOR_SIZE;
         }
-        if let Some(normals) = &mut self.normals {
-            normals.clear();
+        if self.normals.is_some() {
+            size += Mesh::NORMAL_SIZE;
         }
-        if let Some(uvs) = &mut self.uvs {
-            uvs.clear();
+        if self.uvs.is_some() {
+            size += Mesh::UV_SIZE;
         }
+        size
     }
 
     // Checks that vertex buffers all have the same length.
@@ -145,7 +172,7 @@ bitflags! {
     /// Determines the "permutation" of a mesh.
     /// These are flags that determine which vertex attributes are available in a given mesh.
     /// Used for selecting pipelines from a cache.
-    #[derive(Copy, Clone, Eq, PartialEq, Default, Debug)]
+    #[derive(Copy, Clone, Eq, PartialEq, Default, Debug, Hash)]
     pub struct MeshVariant: u8 {
         const NONE      = 0b00000000;
         const COLOR     = 0b00000001;
@@ -159,9 +186,10 @@ impl MeshVariant {
     /**
      * Gets mesh data necessary to build a pipeline.
      */
-    pub fn pipeline_data(self, defs: &mut ShaderDefs, layout: &mut MeshLayout) {
+    pub fn layout(self, defs: &mut ShaderPreprocessor) -> MeshLayout {
         
         // Position
+        let mut layout = MeshLayout::default();
         let mut offset = 0;
         layout.attributes.push(VertexAttribute {
             format: VertexFormat::Float32x3,
@@ -203,10 +231,35 @@ impl MeshVariant {
             defs.add("UV");
         }
         layout.array_stride = offset;
+        layout
     }
 }
 
+/// GPU representation of [`Mesh`].
 pub struct GpuMesh {
-    pub vertices: Buffer,
-    pub indices: Buffer,
+    pub(crate) vertices: Buffer,
+    pub(crate) indices: Buffer,
+    pub(crate) index_format: IndexFormat,
+    pub(crate) num_indices: u32,
+    pub(crate) variant: MeshVariant,
+}
+
+impl GpuMesh {
+    pub fn from_mesh(mesh: &Mesh, device: &Device) -> Self {
+        Self {
+            vertices: device.create_buffer_init(&BufferInitDescriptor {
+                label: Some("vertex_buffer"),
+                contents: &mesh.vertex_bytes(),
+                usage: BufferUsages::COPY_DST | BufferUsages::VERTEX,
+            }),
+            indices: device.create_buffer_init(&BufferInitDescriptor {
+                label: Some("index_buffer"),
+                contents: mesh.index_bytes(),
+                usage: BufferUsages::COPY_DST | BufferUsages::INDEX,
+            }),
+            index_format: IndexFormat::Uint32,
+            num_indices: mesh.indices.len() as u32,
+            variant: mesh.variant(),
+        }
+    }
 }

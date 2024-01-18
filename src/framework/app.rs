@@ -24,24 +24,23 @@ pub struct App {
 
 impl App {
 
-    pub fn new(config: AppConfig) -> Self {
-        config.0
-    }
-
-    pub fn config() -> AppConfig {
-        AppConfig(Self {
-            game: Game::new(),
-            tick: 1,
-            tick_accum: Duration::ZERO,
-            tick_duration: Duration::from_secs_f64(1.0/60.0),
-            scripts: HashMap::new(),
-            script_seq: 0,
-            systems: HashMap::new(),
-            enabled_systems: HashMap::new(),
-            commands: VecDeque::new(),
-            app_requests: VecDeque::new(),
-            external_requests: VecDeque::new(),            
-        })
+    pub fn builder() -> AppBuilder {
+        AppBuilder {
+            app: Self {
+                game: Game::new(),
+                tick: 1,
+                tick_accum: Duration::ZERO,
+                tick_duration: Duration::from_secs_f64(1.0/60.0),
+                scripts: HashMap::new(),
+                script_seq: 0,
+                systems: HashMap::new(),
+                enabled_systems: HashMap::new(),
+                commands: VecDeque::new(),
+                app_requests: VecDeque::new(),
+                external_requests: VecDeque::new(),
+            },
+            runner: None,
+        }
     }
 
     pub fn tick_duration(&self) -> Duration { self.tick_duration }
@@ -174,23 +173,27 @@ impl App {
 }
 
 
-pub struct AppConfig(App);
-impl AppConfig {
+pub struct AppBuilder {
+    app: App,
+    runner: Option<Box<dyn AppRunner>>,
+}
+
+impl AppBuilder {
 
     /**
      * Reference to underlying [`Game`].
      */
-    pub fn game(&mut self) -> &mut Game { &mut self.0.game }
+    pub fn game(&mut self) -> &mut Game { &mut self.app.game }
 
     /// Adds a system to the stage specified.
     pub fn add_system(&mut self, stage: Stage, system: System, enabled: bool) -> &mut Self {
-        if self.0.systems.contains_key(&system) {
+        if self.app.systems.contains_key(&system) {
             panic!("Duplicate system {system:?}");
         }
         let enabled_counter = if enabled { 1 } else { 0 };
-        self.0.systems.insert(system, SystemMeta { enabled_counter, stage });
+        self.app.systems.insert(system, SystemMeta { enabled_counter, stage });
         if enabled {
-            self.0.enabled_systems
+            self.app.enabled_systems
                 .entry(stage)
                 .or_default()
                 .insert(system);
@@ -198,43 +201,43 @@ impl AppConfig {
         self
     }
 
-    pub fn with_plugin(mut self, mut plugin: impl Plugin) -> Self {
-        plugin.install(&mut self);
-        self
-    }
-
-    pub fn add_plugin(&mut self, mut plugin: impl Plugin) -> &mut Self {
+    pub fn plugin(&mut self, mut plugin: impl Plugin) -> &mut Self {
         plugin.install(self);
         self
     }
 
-    pub fn set_tick_duration(&mut self, tick_duration: Duration) {
-        self.0.tick_duration = tick_duration;
+    pub fn tick_duration(&mut self, tick_duration: Duration) {
+        self.app.tick_duration = tick_duration;
+    }
+
+    pub fn runner(&mut self, runner: impl AppRunner + 'static) {
+        self.runner = Some(Box::new(runner));
     }
 
     /// Finishes building [`App`] and immediately runs it.
-    pub fn run(self, mut runner: impl AppRunner) {
-        runner.run(self);
+    pub fn run(mut self) {
+        let mut runner = self.runner.take().expect("Runner not configured");
+        runner.run(self.app);
     }
 }
 
 /// Responsible for running an [`App`].
 pub trait AppRunner {
-    fn run(&mut self, config: AppConfig);
+    fn run(&mut self, app: App);
 }
 
 /**
  * Some function or object that adds functionality to an [`App`].
  */
 pub trait Plugin {
-    fn install(&mut self, config: &mut AppConfig);
+    fn install(&mut self, builder: &mut AppBuilder);
 }
 
 impl<F> Plugin for F
-where F: FnMut(&mut AppConfig)
+where F: FnMut(&mut AppBuilder)
 {
-    fn install(&mut self, config: &mut AppConfig) {
-        self(config);
+    fn install(&mut self, builder: &mut AppBuilder) {
+        self(builder);
     }
 }
 

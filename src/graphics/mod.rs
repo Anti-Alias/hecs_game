@@ -1,25 +1,40 @@
+//! Module that defines both graphics primitives, and multiple graphics engines that make use of those primitives.
+//! The graphics primitives are stored in the domain [`GraphicsState`].
+//! The 3D graphics engine is [`G3D`]
+
 mod state;
 mod g3d;
 mod color;
 mod shader;
 mod scene;
+mod buffer;
 
 pub use state::*;
 pub use g3d::*;
 pub use color::*;
 pub use shader::*;
 pub use scene::*;
+pub use buffer::*;
 
-use wgpu::{TextureViewDescriptor, CommandEncoderDescriptor, RenderPassDescriptor, RenderPassColorAttachment, Operations, LoadOp, Color as WgpuColor, StoreOp};
-use crate::{RunContext, Game, AppConfig, Stage};
+use wgpu::{CommandEncoderDescriptor, RenderPassDescriptor, RenderPassColorAttachment, Operations, LoadOp, Color as WgpuColor, StoreOp};
+use crate::{RunContext, Game, AppBuilder, Stage, Plugin};
 
-/**
- * Adds 2D and 3D graphics functionality.
- * Depends on a [`GraphicsState`].
- */
-pub fn graphics_plugin(config: &mut AppConfig) {
-    config.game().init(|| G3D::new());
-    config.add_system(Stage::Render, render, true);
+
+/// Adds primitive [`GraphicsState`].
+/// Adds a 2D and 3D graphics engine.
+pub struct GraphicsPlugin;
+impl Plugin for GraphicsPlugin {
+    fn install(&mut self, builder: &mut AppBuilder) {
+        builder
+            .game()
+            .init(|game| {
+                let state = game.get::<&GraphicsState>();
+                let device = state.device.clone();
+                let queue = state.queue.clone();
+                G3D::new(device, queue)
+            });
+        builder.add_system(Stage::Render, render, true);        
+    }
 }
 
 fn render(game: &mut Game, _ctx: RunContext) {
@@ -35,8 +50,8 @@ fn render(game: &mut Game, _ctx: RunContext) {
     };
 
     // Encodes rendering commands
-    let view = surface_tex.texture.create_view(&TextureViewDescriptor::default());
-    let mut encoder = graphics_state.device().create_command_encoder(&CommandEncoderDescriptor::default());
+    let view = surface_tex.texture.create_view(&Default::default());
+    let mut encoder = graphics_state.device.create_command_encoder(&CommandEncoderDescriptor::default());
     {
         // Clear screen
         let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
@@ -57,11 +72,11 @@ fn render(game: &mut Game, _ctx: RunContext) {
         });
 
         // Render 3D graphics
-        g3d.render(&mut pass, &graphics_state);
+        g3d.render(&mut pass, graphics_state.surface_config().format);
     }
     
     // Submits encoded commands
     let commands = [encoder.finish()];
-    graphics_state.queue().submit(commands);
+    graphics_state.queue.submit(commands);
     surface_tex.present();
 }

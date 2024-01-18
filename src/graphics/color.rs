@@ -1,5 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 
+use crate::Material;
+
 #[repr(C)]
 #[derive(Copy, Clone, PartialEq, Debug, Pod, Zeroable)]
 pub struct Color {
@@ -29,5 +31,13 @@ impl Color {
 
     pub const fn new(r: f32, g: f32, b: f32, a: f32) -> Self {
         Self { r, g, b, a }
+    }
+}
+
+impl From<Color> for Material {
+    fn from(color: Color) -> Self {
+        Material {
+            base_color: color,
+        }
     }
 }

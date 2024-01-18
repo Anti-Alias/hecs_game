@@ -52,6 +52,16 @@ impl<A: Asset> Handle<A> {
         }
     }
 
+    /**
+     * Unique identifier.
+     */
+    pub fn id(&self) -> HandleId {
+        match self.variant {
+            HandleVariant::Managed { id, .. } => HandleId::Managed(id),
+            HandleVariant::Unmanaged { id } => HandleId::Unmanaged(id),
+        }
+    }
+
     /// Creates a "managed" handle in its initial loading state.
     /// To be filled out later by a [`Loader`](crate::Loader).
     pub(crate) fn loading(id: u64, manager: AssetManager) -> Self {
@@ -139,12 +149,7 @@ impl<A: Asset> Clone for Handle<A> {
 
 impl <A: Asset> PartialEq for Handle<A> {
     fn eq(&self, other: &Self) -> bool {
-        match (&self.variant, &other.variant) {
-            (HandleVariant::Managed { id, .. }, HandleVariant::Managed { id: other_id, .. })    => id == other_id,
-            (HandleVariant::Managed { .. }, HandleVariant::Unmanaged { .. })                    => false,
-            (HandleVariant::Unmanaged { .. }, HandleVariant::Managed { .. })                    => false,
-            (HandleVariant::Unmanaged { id }, HandleVariant::Unmanaged { id: other_id })        => id == other_id,
-        }
+        self.id().eq(&other.id())
     }
 }
 
@@ -152,32 +157,19 @@ impl<A: Asset> Eq for Handle<A> {}
 
 impl<A: Asset> PartialOrd for Handle<A> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        match (&self.variant, &other.variant) {
-            (HandleVariant::Managed { id, .. }, HandleVariant::Managed { id: other_id, .. })    => id.partial_cmp(other_id),
-            (HandleVariant::Managed { .. }, HandleVariant::Unmanaged { .. })                    => Some(Ordering::Less),
-            (HandleVariant::Unmanaged { .. }, HandleVariant::Managed { .. })                    => Some(Ordering::Greater),
-            (HandleVariant::Unmanaged { id }, HandleVariant::Unmanaged { id: other_id })        => id.partial_cmp(other_id),
-        }
+        self.id().partial_cmp(&other.id())
     }
 }
 
 impl<A: Asset> Ord for Handle<A> {
     fn cmp(&self, other: &Self) -> Ordering {
-        match (&self.variant, &other.variant) {
-            (HandleVariant::Managed { id, .. }, HandleVariant::Managed { id: other_id, .. })    => id.cmp(other_id),
-            (HandleVariant::Managed { .. }, HandleVariant::Unmanaged { .. })                    => Ordering::Less,
-            (HandleVariant::Unmanaged { .. }, HandleVariant::Managed { .. })                    => Ordering::Greater,
-            (HandleVariant::Unmanaged { id }, HandleVariant::Unmanaged { id: other_id })        => id.cmp(other_id),
-        }
+        self.id().cmp(&other.id())
     }
 }
 
 impl <A: Asset> Hash for Handle<A> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        match self.variant {
-            HandleVariant::Managed { id, .. } => id.hash(state),
-            HandleVariant::Unmanaged { id } => id.hash(state),
-        }
+        self.id().hash(state)
     }
 }
 
@@ -197,6 +189,12 @@ pub enum HandleVariant {
     }
 }
 
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug, Hash)]
+pub enum HandleId {
+    Managed(u64),
+    Unmanaged(Uuid),
+}
+
 /**
  * Read-only slot.
  */
@@ -212,13 +210,34 @@ impl<'a, A: Asset> Slot<'a, A> {
         dyn_slot.status()
     }
 
+    /// Returns asset if it is loaded.
+    /// Returns None if loading, or loading failed.
+    /// Returns None if loaded, but type was incorrect.
+    pub fn loaded(&self) -> Option<&A> {
+        match self.try_value() {
+            Ok(value) => match value {
+                SlotValue::Loading => None,
+                SlotValue::Loaded(asset) => Some(asset),
+                SlotValue::Failed => None,
+            },
+            Err(err) => {
+                log::error!("{err}");
+                None
+            },
+        }
+    }
+
+    pub fn is_loaded(&self) -> bool {
+        self.loaded().is_some()
+    }
+
     pub fn value(&self) -> SlotValue<&A> {
         self.try_value().unwrap()
     }
 
     pub fn try_value(&self) -> Result<SlotValue<&A>, SlotError> {
         let dyn_slot = &*self.dyn_slot;
-        let dyn_asset: &dyn Any = match dyn_slot {
+        let dyn_asset: &Box<dyn Any + Send + Sync> = match dyn_slot {
             DynSlot::Loaded(dyn_asset) => dyn_asset,
             DynSlot::Loading => return Ok(SlotValue::Loading),
             DynSlot::Failed => return Ok(SlotValue::Failed),
@@ -290,7 +309,7 @@ pub enum SlotValue<V> {
 /**
  * Status of a [`Handle`].
  */
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum HandleStatus {
     Loading,
     Loaded,

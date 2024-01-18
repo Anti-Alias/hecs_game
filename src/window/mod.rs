@@ -3,7 +3,42 @@ use winit::event::{WindowEvent, Event, ElementState};
 use winit::event_loop::{EventLoop, EventLoopWindowTarget};
 use winit::keyboard::PhysicalKey;
 use winit::window::{WindowBuilder, Window};
-use crate::{App, Input, ExternalRequest, GraphicsState, AppConfig, AppRunner};
+use crate::{App, Input, ExternalRequest, GraphicsState, AppBuilder, AppRunner, Plugin};
+
+/// Opens a window and injects a [`GraphicsState`] for use in a graphics engine.
+/// Adds a runner that is synced with the framerate.
+pub struct WinitPlugin {
+    frame_rate: u32,
+    window_width: u32,
+    window_height: u32,
+}
+
+impl Default for WinitPlugin {
+    fn default() -> Self {
+        Self {
+            frame_rate: 60,
+            window_width: 512,
+            window_height: 512
+        }
+    }
+}
+
+impl Plugin for WinitPlugin {
+    fn install(&mut self, builder: &mut AppBuilder) {
+        let event_loop = EventLoop::new().unwrap();
+        let window = WindowBuilder::new().build(&event_loop).unwrap();
+        builder.game()
+            .init(|_| Input::new())
+            .init(|_| GraphicsState::new(&window));
+        builder.runner(WinitRunner {
+            frame_rate: self.frame_rate,
+            window_width: self.window_width,
+            window_height: self.window_height,
+            event_loop: Some(event_loop),
+            window,
+        });
+    }
+}
 
 /**
  * Opens a window and uses it to power an underlying [`App`].
@@ -13,18 +48,12 @@ pub struct WinitRunner {
     frame_rate: u32,
     window_width: u32,
     window_height: u32,
+    event_loop: Option<EventLoop<()>>,
+    window: Window,
 }
 
 impl WinitRunner {
     
-    pub fn new() -> Self {
-        Self {
-            frame_rate: 60,
-            window_width: 16*50,
-            window_height: 9*50,
-        }
-    }
-
     /// Desired frame rate when in exclusive fullscreen mode.
     pub fn with_frame_rate(mut self, frame_rate: u32) -> Self {
         self.frame_rate = frame_rate;
@@ -40,17 +69,12 @@ impl WinitRunner {
 }
 
 impl AppRunner for WinitRunner {
-    fn run(&mut self, mut config: AppConfig) {
-        
-        // Opens window and finishes configuring app
-        let event_loop = EventLoop::new().unwrap();
-        let window = WindowBuilder::new().build(&event_loop).unwrap();
-        config.game()
-            .init(|| Input::new())
-            .init(|| GraphicsState::new(&window));
+    fn run(&mut self, mut app: App) {
 
+        let event_loop = self.event_loop.take().unwrap();
+        let window = &mut self.window;
+        
         // Starts game loop
-        let mut app = App::new(config);
         let mut last_update: Option<SystemTime> = None;
         event_loop.run(move |event, target| {
             match event {
