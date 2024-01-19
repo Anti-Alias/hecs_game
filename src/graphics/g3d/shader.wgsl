@@ -38,34 +38,22 @@ struct FragmentIn {
 }
 
 @vertex
-fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> VertexOut {
-    var TRI_VERTICES = array<vec4<f32>, 3>(
-        vec4(0.0, 0.0, 0.0, 1.0),
-        vec4(0.0, 1.0, 0.0, 1.0),
-        vec4(1.0, 1.0, 0.0, 1.0),
-    );
-    let position = TRI_VERTICES[vertex_index];
-    #ifdef COLOR
-    let color = vec4<f32>(1.0, 0.0, 0.0, 1.0);
-    #endif
-    #ifdef NORMAL
-    let normal = vec3<f32>(0.0, 0.0, -1.0);
-    #endif
+fn vertex_main(in: VertexIn) -> VertexOut {
     return VertexOut(
-        position,
+        vec4<f32>(in.position, 1.0),
         #ifdef COLOR
-        vec4<f32>(1.0, 0.0, 0.0, 1.0),
+        in.color,
         #endif
         #ifdef NORMAL
-        vec3<f32>(0.0, 0.0, -1.0),
+        in.normal,
         #endif
         #ifdef UV
-        vec2<f32>(0.0, 0.0),
+        in.uv,
         #endif
     );
 }
 
 @fragment
 fn fragment_main(in: FragmentIn) -> @location(0) vec4<f32> {
-  return vec4<f32>(1.0, 0.0, 0.0, 1.0);
+  return in.color;
 }

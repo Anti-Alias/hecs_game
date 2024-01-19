@@ -3,7 +3,7 @@ use winit::window::Window;
 use wgpu::*;
 
 /**
- * Domain that stores WGPU primitives needed to do any and all graphics operations.
+ * Stores WGPU primitives needed to do any and all graphics operations.
  */
 pub struct GraphicsState {
     pub device: Arc<Device>,

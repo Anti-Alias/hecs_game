@@ -242,7 +242,7 @@ new_key_type! {
 
 /// A tracked handle to an object in a [`SceneGraph`].
 /// When the handle drops, the object and its descendants get removed.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct NodeTracker<V> {
     node_id: NodeId,
     sender: Sender<NodeMessage>,

@@ -1,5 +1,6 @@
 use glam::Vec3;
-use hecs_game::{App, EnginePlugin, AppBuilder, Color, Cuboid, Mesh, Handle, Material, Renderable, GraphicsState, GpuMesh, G3D, GpuMaterial};
+use hecs::World;
+use hecs_game::{g3d, App, EnginePlugin, AppBuilder, Color, Handle, GraphicsState, SceneGraph};
 
 fn main() {
     env_logger::init();
@@ -10,27 +11,31 @@ fn main() {
     builder.run();
 }
 
-
 fn plugin(builder: &mut AppBuilder) {
 
     // Extracts domains
-    let (state, mut g3d) = builder
+    let (mut world, state, mut scene) = builder
         .game()
-        .all::<(&GraphicsState, &mut G3D)>();
+        .all::<(&mut World, &GraphicsState, &mut SceneGraph<g3d::Renderable>)>();
     
     // Creates material and mesh.
-    let material: Material = Color::BLUE.into();
-    let mesh: Mesh = Cuboid {
+    let material: g3d::Material = Color::BLUE.into();
+    let mesh: g3d::Mesh = g3d::Mesh::from(g3d::Cuboid {
         center: Vec3::new(0.0, 0.0, 0.0),
         half_extents: Vec3::new(0.5, 0.5, 0.5),
-        color: Color::WHITE,
-    }.into();
+        color: Color::BLUE,
+    });
 
     // Uploads material and mesh to GPU.
-    let gpu_material = GpuMaterial::from_material(&material, &state.device);
-    let gpu_mesh = GpuMesh::from_mesh(&mesh, &state.device);
+    let gpu_material = g3d::GpuMaterial::from_material(&material, &state.device);
+    let gpu_mesh = g3d::GpuMesh::from_mesh(&mesh, &state.device);
 
     // Places renderable in 3D scene.
-    let renderable = Renderable::mat_mesh(Handle::new(gpu_material), Handle::new(gpu_mesh));
-    g3d.scene_mut().insert_untracked(renderable);
+    let tracker = scene.insert(g3d::Renderable::mat_mesh(
+        Handle::new(gpu_material),
+        Handle::new(gpu_mesh)
+    ));
+
+    // Spawns entity
+    world.spawn((tracker,));
 }

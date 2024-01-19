@@ -6,6 +6,7 @@ mod input;
 mod graphics;
 mod client;
 mod core;
+pub mod math;
 
 pub use asset::*;
 pub use framework::*;

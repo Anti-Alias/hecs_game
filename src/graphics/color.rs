@@ -1,6 +1,5 @@
 use bytemuck::{Pod, Zeroable};
-
-use crate::Material;
+use crate::g3d::Material;
 
 #[repr(C)]
 #[derive(Copy, Clone, PartialEq, Debug, Pod, Zeroable)]

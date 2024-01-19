@@ -3,7 +3,8 @@ use std::mem::size_of;
 use std::sync::Arc;
 use glam::{Mat4, Affine3A};
 use wgpu::{RenderPass, Device, Queue, RenderPipeline, BufferUsages, Buffer, BufferDescriptor, RenderPipelineDescriptor, PipelineLayoutDescriptor, VertexState, PrimitiveState, PrimitiveTopology, FrontFace, PolygonMode, FragmentState, TextureFormat, ColorTargetState, BlendState, ColorWrites, ShaderModuleDescriptor, ShaderSource};
-use crate::{Handle, MaterialVariant, MeshVariant, Slot, SceneGraph, HandleId, reserve_buffer, GpuMesh, GpuMaterial, ShaderPreprocessor};
+use crate::{Handle, Slot, SceneGraph, HandleId, reserve_buffer, ShaderPreprocessor};
+use crate::g3d::{GpuMaterial, GpuMesh, MeshVariant, MaterialVariant};
 use derive_more::From;
 
 const VERTEX_INDEX: u32 = 0;
@@ -12,7 +13,6 @@ const MATERIAL_INDEX: u32 = 0;
 
 /// A 3D graphics engine that stores its renderables in a scene graph.
 pub struct G3D {
-    scene: SceneGraph<Renderable>,                      // Scene graph of 3D renderables
     pipelines: HashMap<PipelineKey, RenderPipeline>,    // Cache of render pipelines to use
     device: Arc<Device>,
     queue: Arc<Queue>,
@@ -24,7 +24,6 @@ impl G3D {
     /// New graphics engine with an empty scene graph.
     pub fn new(device: Arc<Device>, queue: Arc<Queue>) -> Self {
         Self {
-            scene: SceneGraph::new(),
             pipelines: HashMap::new(),
             device: device.clone(),
             queue,
@@ -37,25 +36,20 @@ impl G3D {
         }
     }
 
-    /// Scene graph where renderables can be registererd.
-    pub fn scene(&self) -> &SceneGraph<Renderable> {
-        &self.scene
-    }
-
-    /// Scene graph where renderables can be registererd.
-    pub fn scene_mut(&mut self) -> &mut SceneGraph<Renderable> {
-        &mut self.scene
-    }
-
     /// Renders the entire scene graph
-    pub fn render<'s: 'r, 'r>(&'s mut self, pass: &mut RenderPass<'r>, texture_format: TextureFormat) {
-        
+    pub fn render<'s: 'r, 'r>(
+        &'s mut self,
+        scene: &mut SceneGraph<Renderable>,
+        pass: &mut RenderPass<'r>,
+        texture_format: TextureFormat
+    ) {
+       
         // Prunes nodes that had their handles dropped
-        self.scene.prune_nodes();
+        scene.prune_nodes();
 
         // Propagate transforms of all renderables
         let init_transf = Mat4::IDENTITY;
-        self.scene.propagate(init_transf, |parent_transf, renderable| {
+        scene.propagate(init_transf, |parent_transf, renderable| {
             renderable.global_transform = parent_transf * renderable.transform;
             renderable.global_transform
         });
@@ -63,7 +57,7 @@ impl G3D {
         // Collects renderables into instance batches (groups of renderables with the same material and mesh)
         let mut renderable_count = 0;
         let mut instance_batches: HashMap<InstanceKey, MatMeshInstances> = HashMap::new();
-        for renderable in self.scene.iter() {
+        for renderable in scene.iter() {
 
             // Extracts material and mesh from renderable. Skips if empty or not loaded.
             let RenderableKind::MatMesh(material_handle, mesh_handle) = &renderable.kind else { continue };
@@ -98,7 +92,7 @@ impl G3D {
             renderable_count += 1;
         }
 
-        // Reserve space for all instance data
+        // Reserve space for all instance data on the GPU buffer
         reserve_buffer(
             &mut self.instance_buffer,
             renderable_count * size_of::<Mat4>() as u64,

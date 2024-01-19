@@ -1,12 +1,5 @@
 use glam::Vec3;
-use crate::{Color, Mesh};
-
-const NORM_LEFT: Vec3 = Vec3::new(-1.0, 0.0, 0.0);
-const NORM_RIGHT: Vec3 = Vec3::new(1.0, 0.0, 0.0);
-const NORM_UP: Vec3 = Vec3::new(0.0, 1.0, 0.0);
-const NORM_DOWN: Vec3 = Vec3::new(0.0, -1.0, 0.0);
-const NORM_NEAR: Vec3 = Vec3::new(0.0, 0.0, 1.0);
-const NORM_FAR: Vec3 = Vec3::new(0.0, 0.0, -1.0);
+use crate::{Color, g3d::Mesh, math};
 
 /**
  * A simple cuboid shape.
@@ -37,27 +30,27 @@ impl From<Cuboid> for Mesh {
 
         // LEFT
         positions.extend([lbf, lbn, ltn, ltf]);
-        normals.extend([NORM_LEFT; 4]);
+        normals.extend([math::DIR_LEFT; 4]);
 
         // RIGHT
         positions.extend([rbn, rbf, rtf, rtn]);
-        normals.extend([NORM_RIGHT; 4]);
+        normals.extend([math::DIR_RIGHT; 4]);
 
         // BOTTOM
         positions.extend([lbf, rbf, rbn, lbn]);
-        normals.extend([NORM_DOWN; 4]);
+        normals.extend([math::DIR_DOWN; 4]);
 
         // TOP
         positions.extend([ltn, rtn, rtf, ltf]);
-        normals.extend([NORM_UP; 4]);
+        normals.extend([math::DIR_UP; 4]);
 
         // NEAR
         positions.extend([lbn, rbn, rtn, ltn]);
-        normals.extend([NORM_NEAR; 4]);
+        normals.extend([math::DIR_NEAR; 4]);
 
         // FAR
         positions.extend([rbf, lbf, ltf, rtf]);
-        normals.extend([NORM_FAR; 4]);
+        normals.extend([math::DIR_FAR; 4]);
 
         Mesh {
             positions,

@@ -3,14 +3,13 @@
 //! The 3D graphics engine is [`G3D`]
 
 mod state;
-mod g3d;
 mod color;
 mod shader;
 mod scene;
 mod buffer;
+pub mod g3d;
 
 pub use state::*;
-pub use g3d::*;
 pub use color::*;
 pub use shader::*;
 pub use scene::*;
@@ -27,20 +26,25 @@ impl Plugin for GraphicsPlugin {
     fn install(&mut self, builder: &mut AppBuilder) {
         builder
             .game()
+            .init(|_| SceneGraph::<g3d::Renderable>::new())
             .init(|game| {
                 let state = game.get::<&GraphicsState>();
                 let device = state.device.clone();
                 let queue = state.queue.clone();
-                G3D::new(device, queue)
+                g3d::G3D::new(device, queue)
             });
-        builder.add_system(Stage::Render, render, true);        
+        builder.add_system(Stage::Render, render_3d, true);        
     }
 }
 
-fn render(game: &mut Game, _ctx: RunContext) {
+fn render_3d(game: &mut Game, _ctx: RunContext) {
     
     // Extracts resources for rendering
-    let (graphics_state, mut g3d) = game.all::<(&GraphicsState, &mut G3D)>();
+    let (graphics_state, mut scene, mut g3d) = game.all::<(
+        &GraphicsState,
+        &mut SceneGraph<g3d::Renderable>,
+        &mut g3d::G3D,
+    )>();
     let surface_tex = match graphics_state.surface().get_current_texture() {
         Ok(surface_tex) => surface_tex,
         Err(err) => {
@@ -72,7 +76,8 @@ fn render(game: &mut Game, _ctx: RunContext) {
         });
 
         // Render 3D graphics
-        g3d.render(&mut pass, graphics_state.surface_config().format);
+        scene.prune_nodes();
+        g3d.render(&mut scene, &mut pass, graphics_state.surface_config().format);
     }
     
     // Submits encoded commands
