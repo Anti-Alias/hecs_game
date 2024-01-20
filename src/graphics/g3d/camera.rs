@@ -1,14 +1,24 @@
 use glam::Mat4;
 
-pub enum Camera {
+pub struct Camera {
+    pub target: CameraTarget,
+    pub projection: Projection,
+}
+
+pub enum CameraTarget {
+    OnScreen,
+    OffScreen,
+}
+
+pub enum Projection {
     Orthographic(OrthographicCamera),
     Perspective(PerspectiveCamera),
 }
 
-impl Camera {
+impl Projection {
     pub fn projection_view(&self) -> Mat4 {
         match self {
-            Camera::Orthographic(ortho) => Mat4::orthographic_lh(
+            Self::Orthographic(ortho) => Mat4::orthographic_lh(
                 ortho.left,
                 ortho.right,
                 ortho.bottom,
@@ -16,7 +26,7 @@ impl Camera {
                 ortho.near,
                 ortho.far
             ),
-            Camera::Perspective(persp) => Mat4::perspective_lh(
+            Self::Perspective(persp) => Mat4::perspective_lh(
                 persp.fov,
                 persp.aspect_ratio,
                 persp.near,

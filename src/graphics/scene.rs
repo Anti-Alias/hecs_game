@@ -189,13 +189,13 @@ impl<V> SceneGraph<V> {
     /// Recursive fold-like operation starting at the root nodes.
     /// Value accumulates from parent to child.
     /// Useful for implementing transform propagation.
-    pub fn propagate<A, F>(&mut self, accum: A, mut function: F)
+    pub fn propagate<'a, A, F>(&'a self, accum: A, mut function: F)
     where
         A: Clone,
-        F: FnMut(A, &mut V) -> A
+        F: FnMut(A, &'a V) -> A
     {
         for root_id in &self.root_ids {
-            propagate_at(&mut self.nodes, *root_id, accum.clone(), &mut function);
+            propagate_at(&self.nodes, *root_id, accum.clone(), &mut function);
         }
     }
 }
@@ -210,18 +210,14 @@ fn remove<V>(node_id: NodeId, nodes: &mut SlotMap<NodeId, Node<V>>) -> Option<V>
     Some(node.value)
 }
 
-fn propagate_at<V, A, F>(nodes: &mut SlotMap<NodeId, Node<V>>, node_id: NodeId, accum: A, function: &mut F)
+fn propagate_at<'a, V, A, F>(nodes: &'a SlotMap<NodeId, Node<V>>, node_id: NodeId, accum: A, function: &mut F)
 where
     A: Clone,
-    F: FnMut(A, &mut V) -> A
+    F: FnMut(A, &'a V) -> A
 {
-    let node = nodes.get_mut(node_id).unwrap();
-    let current = function(accum, &mut node.value);
-    let child_ids: &'static [NodeId] = unsafe {
-        let slice: &[NodeId] = &node.children_ids;
-        std::mem::transmute(slice)
-    };
-    for child_id in child_ids {
+    let node = nodes.get(node_id).unwrap();
+    let current = function(accum, &node.value);
+    for child_id in &node.children_ids {
         propagate_at(nodes, *child_id, current.clone(), function);
     }
 }

@@ -45,7 +45,7 @@ struct FragmentIn {
 }
 
 @vertex
-fn vertex_main(instance: InstanceIn, vert: VertexIn) -> VerteuxOut {
+fn vertex_main(instance: InstanceIn, vert: VertexIn) -> VertexOut {
     let mvp = mat4x4<f32>(
         instance.model_0,
         instance.model_1,

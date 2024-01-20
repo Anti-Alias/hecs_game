@@ -63,14 +63,14 @@ impl G3D {
         }
     }
 
-    /// Gathers renderables from the scene graph, and produces a job to render later.
-    pub fn prepare_job<'s>(&mut self, scene: &'s SceneGraph<Renderable>, texture_format: TextureFormat) -> RenderJob<'s> {
+    /// Generates render jobs for every camera in the scene graph.
+    pub(crate) fn prepare_job<'s>(&mut self, scene: FlatScene<'s>, texture_format: TextureFormat) -> RenderJob<'s> {
         let mut renderable_count = 0;
         let mut instance_batches: HashMap<InstanceKey, MatMeshInstances> = HashMap::new();
-        for renderable in scene.iter() {
+        for mat_mesh in scene.mat_meshes {
 
-            // Extracts material and mesh from renderable. Skips if empty or not loaded.
-            let RenderableKind::MatMesh(material_handle, mesh_handle) = &renderable.kind else { continue };
+            // Extracts MatMesh from renderable. Skips if empty or not loaded.
+            let MatMesh(material_handle, mesh_handle) = mat_mesh.mat_mesh;
             let material_slot = material_handle.slot();
             let mesh_slot = mesh_handle.slot();
             let Some(material) = material_slot.loaded() else { continue };
@@ -98,7 +98,7 @@ impl G3D {
                 });
             
             // Inserts instance data into that batch.
-            instance_batch.instance_data.push(renderable.global_transform);
+            instance_batch.instance_data.push(mat_mesh.global_transform);
             renderable_count += 1;
         }
         RenderJob {
@@ -148,12 +148,16 @@ impl G3D {
     }
 }
 
-pub(crate) fn propagate_transforms(scene: &mut SceneGraph<Renderable>) {
+/// Propagates transforms in the scene, and separates renderables into flat vecs separated by type.
+pub(crate) fn flatten_scene<'a>(scene: &'a SceneGraph<Renderable>) -> FlatScene<'a> {
+    let mut flat_scene = FlatScene::new();
     let init_transf = Mat4::IDENTITY;
     scene.propagate(init_transf, |parent_transf, renderable| {
-        renderable.global_transform = parent_transf * renderable.transform;
-        renderable.global_transform
+        let global_transform = parent_transf * renderable.transform;
+        flat_scene.add(renderable, global_transform);
+        global_transform
     });
+    flat_scene
 }
 
 /// Collection of renderables to be rendered at a later time.
@@ -169,7 +173,6 @@ pub struct RenderJob<'a> {
 pub struct Renderable {
     pub kind: RenderableKind,
     pub transform: Affine3A,
-    global_transform: Mat4,
 }
 
 impl Renderable {
@@ -178,7 +181,6 @@ impl Renderable {
         Self {
             kind: kind.into(),
             transform: Affine3A::IDENTITY,
-            global_transform: Mat4::IDENTITY,
         }
     }
 
@@ -187,7 +189,7 @@ impl Renderable {
     }
 
     pub fn mat_mesh(material: Handle<GpuMaterial>, mesh: Handle<GpuMesh>) -> Self {
-        Self::new(RenderableKind::MatMesh(material, mesh))
+        Self::new(RenderableKind::MatMesh(MatMesh(material, mesh)))
     }
 
     pub fn with_kind(mut self, kind: impl Into<RenderableKind>) -> Self {
@@ -205,13 +207,27 @@ impl Renderable {
 #[derive(From)]
 pub enum RenderableKind {
     /// A material and mesh combo.
-    MatMesh(Handle<GpuMaterial>, Handle<GpuMesh>),
+    MatMesh(MatMesh),
+    /// No renderable content.
     /// 3D perspective or orthographic camera.
     Camera(Camera),
     /// No renderable content.
     /// Useful for grouping objects with no visible parent.
     Empty,
 }
+
+pub struct FlatMatMesh<'a> {
+    mat_mesh: &'a MatMesh,
+    global_transform: Mat4,
+}
+
+pub struct FlatCamera<'a> {
+    camera: &'a Camera,
+    global_transform: Mat4,
+}
+
+/// Material mesh renderable.
+pub struct MatMesh(Handle<GpuMaterial>, Handle<GpuMesh>);
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
 struct PipelineKey(MeshVariant, MaterialVariant);
@@ -291,4 +307,34 @@ fn create_pipeline(
         }),
         multiview: None,
     })
+}
+
+/// A flattened [`SceneGraph`] where renderable is separated by type.
+pub(crate) struct FlatScene<'a> {
+    mat_meshes: Vec<FlatMatMesh<'a>>,
+    cameras: Vec<FlatCamera<'a>>,
+}
+
+impl<'a> FlatScene<'a> {
+
+    fn new() -> Self {
+        Self {
+            mat_meshes: Vec::new(),
+            cameras: Vec::new(),
+        }
+    }
+
+    fn add(&mut self, renderable: &'a Renderable, global_transform: Mat4) {
+        match &renderable.kind {
+            RenderableKind::MatMesh(mat_mesh) => self.mat_meshes.push(FlatMatMesh {
+                mat_mesh,
+                global_transform,
+            }),
+            RenderableKind::Camera(camera) => self.cameras.push(FlatCamera {
+                camera,
+                global_transform,
+            }),
+            RenderableKind::Empty => {},
+        }
+    }
 }

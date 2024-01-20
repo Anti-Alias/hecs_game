@@ -60,10 +60,10 @@ fn render_3d(game: &mut Game, _ctx: RunContext) {
     {
         // Prune dropped nodes from scene graphs.
         g3d_scene.prune_nodes();
-
-        // Prepares rendering jobs for graphics engines.
-        g3d::propagate_transforms(&mut g3d_scene);
-        let g3d_job = g3d.prepare_job(&g3d_scene, texture_format);
+        
+        // Flattens scene and prepares rendering job
+        let flat_scene = g3d::flatten_scene(&g3d_scene);
+        let g3d_job = g3d.prepare_job(flat_scene, texture_format);
 
         // Creates render pass
         let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
