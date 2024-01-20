@@ -48,8 +48,8 @@ fn plugin(builder: &mut AppBuilder) {
     let red_mesh = Handle::new(red_mesh);
     
     // Spawns entities
-    let mut rng = SmallRng::seed_from_u64(42);
-    for _ in 0..10 {
+    let mut rng = SmallRng::seed_from_u64(48);
+    for _ in 0..2 {
         let mesh_flag: bool = rng.gen();
         let mesh = match mesh_flag {
             true => blue_mesh.clone(),

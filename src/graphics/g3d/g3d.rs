@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::mem::size_of;
 use std::sync::Arc;
-use glam::{Mat4, Affine3A, Vec3, Quat, EulerRot};
+use glam::{Mat4, Affine3A};
 use wgpu::{RenderPass, Device, Queue, RenderPipeline, BufferUsages, Buffer, BufferDescriptor, RenderPipelineDescriptor, PipelineLayoutDescriptor, VertexState, PrimitiveState, PrimitiveTopology, FrontFace, PolygonMode, FragmentState, TextureFormat, ColorTargetState, BlendState, ColorWrites, ShaderModuleDescriptor, ShaderSource, VertexBufferLayout, VertexStepMode, VertexAttribute, VertexFormat, DepthStencilState, CompareFunction, StencilState, DepthBiasState};
 use derive_more::From;
 use crate::math::Transform;
@@ -123,13 +123,14 @@ impl G3D {
             &self.device
         );
 
-        // Renders all instance batches
+        // Buffers draw calls for instance batches
         let mut buffer_offset = 0;
+        let mut instance_bytes = Vec::new();
         for instance_batch in job.instance_batches {
 
-            // Uploads instance data to section of instance buffer
+            // Appends instance data to vec
             let transform_bytes: &[u8] = bytemuck::cast_slice(&instance_batch.instance_data);
-            self.queue.write_buffer(&self.instance_buffer, buffer_offset, transform_bytes);
+            instance_bytes.extend_from_slice(transform_bytes);
 
             // Gets material, mesh and pipeline for rendering.
             let material: &'r GpuMaterial = unsafe {
@@ -151,6 +152,7 @@ impl G3D {
             pass.draw_indexed(0..mesh.num_indices, 0, 0..num_instances);
             buffer_offset += transform_bytes.len() as u64;
         }
+        self.queue.write_buffer(&self.instance_buffer, 0, &instance_bytes);
     }
 }
 
@@ -184,18 +186,11 @@ pub struct Renderable {
 
 impl Renderable {
     
-    pub fn new(kind: impl Into<RenderableKind>) -> Self {
+    pub fn new(kind: RenderableKind) -> Self {
         Self {
-            kind: kind.into(),
+            kind,
             transform: Transform::IDENTITY,
         }
-    }
-
-    /**
-     * Creates an empty renderable.
-     */
-    pub fn empty() -> Self {
-        Self::new(RenderableKind::Empty)
     }
 
     /**
@@ -205,44 +200,18 @@ impl Renderable {
         Self::new(RenderableKind::MatMesh(MatMesh(material, mesh)))
     }
 
-    pub fn with_kind(mut self, kind: impl Into<RenderableKind>) -> Self {
-        self.kind = kind.into();
-        self
+    /**
+     * Creates a [`Camera`] renderable.
+     */
+    pub fn camera(camera: Camera) -> Self {
+        Self::new(RenderableKind::Camera(camera))
     }
 
-    pub fn with_translation(mut self, translation: Vec3) -> Self {
-        self.transform.translation = translation;
-        self
-    }
-
-    pub fn with_xyz(mut self, x: f32, y: f32, z: f32) -> Self {
-        self.transform.translation = Vec3::new(x, y, z);
-        self
-    }
-
-    pub fn with_scale(mut self, scale: Vec3) -> Self {
-        self.transform.scale = scale;
-        self
-    }
-
-    pub fn with_scale_xyz(mut self, x: f32, y: f32, z: f32) -> Self {
-        self.transform.scale = Vec3::new(x, y, z);
-        self
-    }
-
-    pub fn with_rotation(mut self, rotation: Quat) -> Self {
-        self.transform.rotation = rotation;
-        self
-    }
-
-    pub fn with_euler(mut self, rot: EulerRot, a: f32, b: f32, c: f32) -> Self {
-        self.transform.rotation = Quat::from_euler(rot, a, b, c);
-        self
-    }
-
-    pub fn with_transform(mut self, transform: Transform) -> Self {
-        self.transform = transform;
-        self
+    /**
+     * Creates an empty renderable.
+     */
+    pub fn empty() -> Self {
+        Self::new(RenderableKind::Empty)
     }
 }
 
