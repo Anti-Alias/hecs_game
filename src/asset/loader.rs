@@ -3,7 +3,7 @@ use std::any::Any;
 use crate::{Asset, AssetManager, Handle, LoadError};
 
 /**
- * Responsible for loading an [`Asset`].
+ * Responsible for loading an [`Asset`] in a background thread.
  */
 pub trait Loader: Send + Sync + 'static {
     type AssetType: Asset;

@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::mem::size_of;
 use std::sync::Arc;
-use glam::{Mat4, Affine3A};
-use wgpu::{RenderPass, Device, Queue, RenderPipeline, BufferUsages, Buffer, BufferDescriptor, RenderPipelineDescriptor, PipelineLayoutDescriptor, VertexState, PrimitiveState, PrimitiveTopology, FrontFace, PolygonMode, FragmentState, TextureFormat, ColorTargetState, BlendState, ColorWrites, ShaderModuleDescriptor, ShaderSource, VertexBufferLayout, VertexStepMode, VertexAttribute, VertexFormat};
+use glam::{Mat4, Affine3A, Vec3, Quat, EulerRot};
+use wgpu::{RenderPass, Device, Queue, RenderPipeline, BufferUsages, Buffer, BufferDescriptor, RenderPipelineDescriptor, PipelineLayoutDescriptor, VertexState, PrimitiveState, PrimitiveTopology, FrontFace, PolygonMode, FragmentState, TextureFormat, ColorTargetState, BlendState, ColorWrites, ShaderModuleDescriptor, ShaderSource, VertexBufferLayout, VertexStepMode, VertexAttribute, VertexFormat, DepthStencilState, CompareFunction, StencilState, DepthBiasState};
 use derive_more::From;
+use crate::math::Transform;
 use crate::{Handle, Slot, SceneGraph, HandleId, reserve_buffer, ShaderPreprocessor};
 use crate::g3d::{GpuMaterial, GpuMesh, MeshVariant, MaterialVariant, Camera};
 
@@ -64,7 +65,12 @@ impl G3D {
     }
 
     /// Generates render jobs for every camera in the scene graph.
-    pub(crate) fn prepare_job<'s>(&mut self, scene: FlatScene<'s>, texture_format: TextureFormat) -> RenderJob<'s> {
+    pub(crate) fn prepare_job<'s>(
+        &mut self,
+        scene: FlatScene<'s>,
+        texture_format: TextureFormat,
+        depth_format: TextureFormat,
+    ) -> RenderJob<'s> {
         let mut renderable_count = 0;
         let mut instance_batches: HashMap<InstanceKey, MatMeshInstances> = HashMap::new();
         for mat_mesh in scene.mat_meshes {
@@ -81,7 +87,7 @@ impl G3D {
             let pipeline_key = PipelineKey(mesh.variant, material.variant);
             self.pipelines
                 .entry(pipeline_key)
-                .or_insert_with(|| create_pipeline(&material, &mesh, texture_format, &self.device));
+                .or_insert_with(|| create_pipeline(&material, &mesh, texture_format, depth_format, &self.device));
 
             // Fetches batch for material and mesh.
             // Creates it if it does not exist.
@@ -153,7 +159,8 @@ pub(crate) fn flatten_scene<'a>(scene: &'a SceneGraph<Renderable>) -> FlatScene<
     let mut flat_scene = FlatScene::new();
     let init_transf = Mat4::IDENTITY;
     scene.propagate(init_transf, |parent_transf, renderable| {
-        let global_transform = parent_transf * renderable.transform;
+        let local_transform = Affine3A::from(renderable.transform);
+        let global_transform = parent_transf * local_transform;
         flat_scene.add(renderable, global_transform);
         global_transform
     });
@@ -172,7 +179,7 @@ pub struct RenderJob<'a> {
  */
 pub struct Renderable {
     pub kind: RenderableKind,
-    pub transform: Affine3A,
+    pub transform: Transform,
 }
 
 impl Renderable {
@@ -180,14 +187,20 @@ impl Renderable {
     pub fn new(kind: impl Into<RenderableKind>) -> Self {
         Self {
             kind: kind.into(),
-            transform: Affine3A::IDENTITY,
+            transform: Transform::IDENTITY,
         }
     }
 
+    /**
+     * Creates an empty renderable.
+     */
     pub fn empty() -> Self {
         Self::new(RenderableKind::Empty)
     }
 
+    /**
+     * Creates a [`MatMesh`] renderable.
+     */
     pub fn mat_mesh(material: Handle<GpuMaterial>, mesh: Handle<GpuMesh>) -> Self {
         Self::new(RenderableKind::MatMesh(MatMesh(material, mesh)))
     }
@@ -197,7 +210,37 @@ impl Renderable {
         self
     }
 
-    pub fn with_transform(mut self, transform: Affine3A) -> Self {
+    pub fn with_translation(mut self, translation: Vec3) -> Self {
+        self.transform.translation = translation;
+        self
+    }
+
+    pub fn with_xyz(mut self, x: f32, y: f32, z: f32) -> Self {
+        self.transform.translation = Vec3::new(x, y, z);
+        self
+    }
+
+    pub fn with_scale(mut self, scale: Vec3) -> Self {
+        self.transform.scale = scale;
+        self
+    }
+
+    pub fn with_scale_xyz(mut self, x: f32, y: f32, z: f32) -> Self {
+        self.transform.scale = Vec3::new(x, y, z);
+        self
+    }
+
+    pub fn with_rotation(mut self, rotation: Quat) -> Self {
+        self.transform.rotation = rotation;
+        self
+    }
+
+    pub fn with_euler(mut self, rot: EulerRot, a: f32, b: f32, c: f32) -> Self {
+        self.transform.rotation = Quat::from_euler(rot, a, b, c);
+        self
+    }
+
+    pub fn with_transform(mut self, transform: Transform) -> Self {
         self.transform = transform;
         self
     }
@@ -216,18 +259,20 @@ pub enum RenderableKind {
     Empty,
 }
 
+/// Material mesh renderable.
+pub struct MatMesh(Handle<GpuMaterial>, Handle<GpuMesh>);
+
+/// MatMesh with its transform propagated.
 pub struct FlatMatMesh<'a> {
     mat_mesh: &'a MatMesh,
     global_transform: Mat4,
 }
 
+/// Camera with its transform propagated.
 pub struct FlatCamera<'a> {
     camera: &'a Camera,
     global_transform: Mat4,
 }
-
-/// Material mesh renderable.
-pub struct MatMesh(Handle<GpuMaterial>, Handle<GpuMesh>);
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
 struct PipelineKey(MeshVariant, MaterialVariant);
@@ -252,6 +297,7 @@ fn create_pipeline(
     material: &GpuMaterial,
     mesh: &GpuMesh,
     texture_format: TextureFormat,
+    depth_format: TextureFormat,
     device: &Device
 ) -> RenderPipeline {
 
@@ -266,9 +312,7 @@ fn create_pipeline(
     let shader_code = shader_defs
         .preprocess(shader_code)
         .unwrap();
-    //println!("{shader_code}");
-    let module = device.create_shader_module(ShaderModuleDescriptor {
-        label: Some("g3d_module"),
+    let module = device.create_shader_module(ShaderModuleDescriptor { label: Some("g3d_module"),
         source: ShaderSource::Wgsl(shader_code.into()),
     });
     let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
@@ -277,6 +321,7 @@ fn create_pipeline(
         push_constant_ranges: &[],
     });
 
+    // Creates pipeline
     device.create_render_pipeline(&RenderPipelineDescriptor {
         label: Some("g3d_pipeline"),
         layout: Some(&layout),
@@ -294,7 +339,13 @@ fn create_pipeline(
             polygon_mode: PolygonMode::Fill,
             conservative: false,
         },
-        depth_stencil: None,
+        depth_stencil: Some(DepthStencilState {
+            format: depth_format,
+            depth_write_enabled: true,
+            depth_compare: CompareFunction::LessEqual,
+            stencil: StencilState::default(),
+            bias: DepthBiasState::default(),
+        }),
         multisample: Default::default(),
         fragment: Some(FragmentState {
             module: &module,

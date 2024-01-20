@@ -1,7 +1,6 @@
 use std::time::Duration;
 use crate::core::CorePlugin;
 use crate::{AppBuilder, Plugin, WinitPlugin, GraphicsPlugin};
-const TICK_DURATION: Duration = Duration::from_secs(1);
 
 /**
  * Main game-engine plugin.
@@ -13,6 +12,6 @@ impl Plugin for EnginePlugin {
             .plugin(CorePlugin)
             .plugin(WinitPlugin::default())
             .plugin(GraphicsPlugin)
-            .tick_duration(TICK_DURATION);        
+            .tick_duration(Duration::from_secs_f64(1.0/60.0));        
     }
 }

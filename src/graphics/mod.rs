@@ -9,15 +9,15 @@ mod scene;
 mod buffer;
 pub mod g3d;
 
+use hecs::World;
 pub use state::*;
 pub use color::*;
 pub use shader::*;
 pub use scene::*;
 pub use buffer::*;
-
-use wgpu::{CommandEncoderDescriptor, RenderPassDescriptor, RenderPassColorAttachment, Operations, LoadOp, Color as WgpuColor, StoreOp};
+use wgpu::{CommandEncoderDescriptor, RenderPassDescriptor, RenderPassColorAttachment, Operations, LoadOp, Color as WgpuColor, StoreOp, RenderPassDepthStencilAttachment};
+use crate::math::Transform;
 use crate::{RunContext, Game, AppBuilder, Stage, Plugin};
-
 
 /// Adds primitive [`GraphicsState`].
 /// Adds a 2D and 3D graphics engine.
@@ -38,12 +38,13 @@ impl Plugin for GraphicsPlugin {
 }
 
 fn render_3d(game: &mut Game, _ctx: RunContext) {
-    
+
     // Extracts resources for rendering
-    let (graphics_state, mut g3d_scene, mut g3d) = game.all::<(
+    let (graphics_state, mut g3d_scene, mut g3d, mut world) = game.all::<(
         &GraphicsState,
         &mut SceneGraph<g3d::Renderable>,
         &mut g3d::G3D,
+        &mut World,
     )>();
     let surface_tex = match graphics_state.surface().get_current_texture() {
         Ok(surface_tex) => surface_tex,
@@ -53,17 +54,24 @@ fn render_3d(game: &mut Game, _ctx: RunContext) {
         }
     };
     let texture_format = graphics_state.surface_config().format;
+    let depth_format = graphics_state.depth_format();
+    let depth_view = graphics_state.depth_view();
 
-    // Encodes rendering commands
+    // Syncs transforms
+    for (_, (transform, tracker)) in world.query_mut::<(&Transform, &NodeTracker<g3d::Renderable>)>() {
+        let Some(renderable) = g3d_scene.get_mut(tracker.node_id()) else { continue };
+        renderable.transform = *transform;
+    }
+
+    // Removes nodes that are no longer tracked
+    g3d_scene.prune_nodes();
+
+    // Renders scene
     let view = surface_tex.texture.create_view(&Default::default());
     let mut encoder = graphics_state.device.create_command_encoder(&CommandEncoderDescriptor::default());
     {
-        // Prune dropped nodes from scene graphs.
-        g3d_scene.prune_nodes();
-        
-        // Flattens scene and prepares rendering job
         let flat_scene = g3d::flatten_scene(&g3d_scene);
-        let g3d_job = g3d.prepare_job(flat_scene, texture_format);
+        let g3d_job = g3d.prepare_job(flat_scene, texture_format, depth_format);
 
         // Creates render pass
         let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
@@ -78,7 +86,14 @@ fn render_3d(game: &mut Game, _ctx: RunContext) {
                     },
                 })
             ],
-            depth_stencil_attachment: None,
+            depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
+                view: depth_view,
+                depth_ops: Some(Operations {
+                    load: LoadOp::Clear(1.0),
+                    store: StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
             timestamp_writes: None,
             occlusion_query_set: None,
         });
@@ -87,7 +102,7 @@ fn render_3d(game: &mut Game, _ctx: RunContext) {
         g3d.render(g3d_job, &mut pass);
     }
     
-    // Submits encoded commands
+    // Encoded render
     let commands = [encoder.finish()];
     graphics_state.queue.submit(commands);
     surface_tex.present();

@@ -251,9 +251,7 @@ impl<V> NodeTracker<V> {
 
 impl<V> Drop for NodeTracker<V> {
     fn drop(&mut self) {
-        if let Err(err) = self.sender.send(NodeMessage::DropNode(self.node_id)) {
-            log::error!("{err}");
-        }
+        let _ = self.sender.send(NodeMessage::DropNode(self.node_id));
     }
 }
 

@@ -10,11 +10,13 @@ pub struct GraphicsState {
     pub queue: Arc<Queue>,
     surface: Surface,
     surface_config: SurfaceConfiguration,
+    depth_format: TextureFormat,
+    depth_view: TextureView,
 }
 
 impl GraphicsState {
 
-    pub fn new(window: &Window) -> Self {
+    pub fn new(window: &Window, depth_format: TextureFormat) -> Self {
         let instance = wgpu::Instance::new(InstanceDescriptor::default());
         let surface = unsafe {
             instance.create_surface(window).expect("Failed to create surface")
@@ -38,11 +40,14 @@ impl GraphicsState {
             view_formats: vec![],
         };
         surface.configure(&device, &surface_config);
+        let depth_view = create_depth_view(&device, window_size.width, window_size.height, depth_format);
         Self {
             device: Arc::new(device),
             queue: Arc::new(queue),
             surface,
             surface_config,
+            depth_format,
+            depth_view,
         }
     }
 
@@ -50,6 +55,7 @@ impl GraphicsState {
         self.surface_config.width = width.max(1);
         self.surface_config.height = height.max(1);
         self.surface.configure(&self.device, &self.surface_config);
+        self.depth_view = create_depth_view(&self.device, width, height, self.depth_format);
     }
 
     /**
@@ -62,4 +68,30 @@ impl GraphicsState {
     pub fn surface_config(&self) -> &SurfaceConfiguration {
         &self.surface_config
     }
+
+    pub fn depth_format(&self) -> TextureFormat {
+        self.depth_format
+    }
+
+    pub fn depth_view(&self) -> &TextureView {
+        &self.depth_view
+    }
+}
+
+fn create_depth_view(device: &Device, width: u32, height: u32, format: TextureFormat) -> TextureView {
+    let texture = device.create_texture(&TextureDescriptor {
+        label: Some("depth_texture"),
+        size: Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: TextureDimension::D2,
+        format,
+        usage: TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    texture.create_view(&TextureViewDescriptor::default())
 }

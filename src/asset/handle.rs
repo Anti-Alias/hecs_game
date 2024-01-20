@@ -34,20 +34,35 @@ impl DynSlot {
 }
 
 /**
- * Shareable container of a [`Slot`], which itself may contain an [`Asset`].
+ * Shareable container of an [`Asset`].
  */
 pub struct Handle<A: Asset> {
-    variant: HandleVariant,     // Managed/unmanaged specific data
+    variant: HandleVariant,     // Managed or unmanaged specific data
     dyn_handle: DynHandle,      // Underlying dynamic handle
     phantom: PhantomData<A>,    // ZST marker
 }
 impl<A: Asset> Handle<A> {
 
     /// Creates an "unmanaged" handle with contents created programmatically.
+    /// Not stored in an [`AssetManager`].
     pub fn new(asset: A) -> Self {
         Self {
             variant: HandleVariant::Unmanaged { id: Uuid::new_v4() },
             dyn_handle: DynHandle(Arc::new(RwLock::new(DynSlot::Loaded(Box::new(asset))))),
+            phantom: PhantomData,
+        }
+    }
+
+    /// Creates a "managed" handle in an initial loading state.
+    /// To be filled out later by a [`Loader`](crate::Loader).
+    /// To be stored in an [`AssetManager`].
+    pub(crate) fn loading(id: u64, manager: AssetManager) -> Self {
+        Self {
+            variant: HandleVariant::Managed {
+                id,
+                manager,
+            },
+            dyn_handle: DynHandle(Arc::new(RwLock::new(DynSlot::Loading))),
             phantom: PhantomData,
         }
     }
@@ -59,19 +74,6 @@ impl<A: Asset> Handle<A> {
         match self.variant {
             HandleVariant::Managed { id, .. } => HandleId::Managed(id),
             HandleVariant::Unmanaged { id } => HandleId::Unmanaged(id),
-        }
-    }
-
-    /// Creates a "managed" handle in its initial loading state.
-    /// To be filled out later by a [`Loader`](crate::Loader).
-    pub(crate) fn loading(id: u64, manager: AssetManager) -> Self {
-        Self {
-            variant: HandleVariant::Managed {
-                id,
-                manager,
-            },
-            dyn_handle: DynHandle(Arc::new(RwLock::new(DynSlot::Loading))),
-            phantom: PhantomData,
         }
     }
 

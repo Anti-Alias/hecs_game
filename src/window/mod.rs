@@ -1,4 +1,5 @@
 use std::time::{SystemTime, Duration};
+use wgpu::TextureFormat;
 use winit::event::{WindowEvent, Event, ElementState};
 use winit::event_loop::{EventLoop, EventLoopWindowTarget};
 use winit::keyboard::PhysicalKey;
@@ -29,7 +30,7 @@ impl Plugin for WinitPlugin {
         let window = WindowBuilder::new().build(&event_loop).unwrap();
         builder.game()
             .init(|_| Input::new())
-            .init(|_| GraphicsState::new(&window));
+            .init(|_| GraphicsState::new(&window, TextureFormat::Depth24Plus));
         builder.runner(WinitRunner {
             frame_rate: self.frame_rate,
             window_width: self.window_width,

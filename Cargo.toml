@@ -16,6 +16,7 @@ glam = { version = "0.25.0", features = ["bytemuck"] }
 hecs = "0.10.4"
 log = "0.4.20"
 pollster = "0.3.0"
+rand = { version = "0.8.5", features = ["small_rng"] }
 slotmap = "1.0.7"
 smallvec = "1.11.2"
 uuid = { version = "1.6.1", features = ["v4"] }
