@@ -1,13 +1,20 @@
+struct InstanceIn {
+    @location(0) model_0: vec4<f32>,
+    @location(1) model_1: vec4<f32>,
+    @location(2) model_2: vec4<f32>,
+    @location(3) model_3: vec4<f32>,
+}
+
 struct VertexIn {
-    @location(0) position: vec3<f32>,
+    @location(4) position: vec3<f32>,
     #ifdef COLOR
-    @location(1) color: vec4<f32>,
+    @location(5) color: vec4<f32>,
     #endif
     #ifdef NORMAL
-    @location(2) normal: vec3<f32>,
+    @location(6) normal: vec3<f32>,
     #endif
     #ifdef UV
-    @location(3) uv: vec2<f32>,
+    @location(7) uv: vec2<f32>,
     #endif
 }
 
@@ -38,17 +45,23 @@ struct FragmentIn {
 }
 
 @vertex
-fn vertex_main(in: VertexIn) -> VertexOut {
+fn vertex_main(instance: InstanceIn, vert: VertexIn) -> VerteuxOut {
+    let mvp = mat4x4<f32>(
+        instance.model_0,
+        instance.model_1,
+        instance.model_2,
+        instance.model_3,
+    );
     return VertexOut(
-        vec4<f32>(in.position, 1.0),
+        mvp * vec4<f32>(vert.position, 1.0),
         #ifdef COLOR
-        in.color,
+        vert.color,
         #endif
         #ifdef NORMAL
-        in.normal,
+        vert.normal,
         #endif
         #ifdef UV
-        in.uv,
+        vert.uv,
         #endif
     );
 }

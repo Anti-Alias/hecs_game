@@ -2,14 +2,41 @@ use std::collections::HashMap;
 use std::mem::size_of;
 use std::sync::Arc;
 use glam::{Mat4, Affine3A};
-use wgpu::{RenderPass, Device, Queue, RenderPipeline, BufferUsages, Buffer, BufferDescriptor, RenderPipelineDescriptor, PipelineLayoutDescriptor, VertexState, PrimitiveState, PrimitiveTopology, FrontFace, PolygonMode, FragmentState, TextureFormat, ColorTargetState, BlendState, ColorWrites, ShaderModuleDescriptor, ShaderSource};
-use crate::{Handle, Slot, SceneGraph, HandleId, reserve_buffer, ShaderPreprocessor};
-use crate::g3d::{GpuMaterial, GpuMesh, MeshVariant, MaterialVariant};
+use wgpu::{RenderPass, Device, Queue, RenderPipeline, BufferUsages, Buffer, BufferDescriptor, RenderPipelineDescriptor, PipelineLayoutDescriptor, VertexState, PrimitiveState, PrimitiveTopology, FrontFace, PolygonMode, FragmentState, TextureFormat, ColorTargetState, BlendState, ColorWrites, ShaderModuleDescriptor, ShaderSource, VertexBufferLayout, VertexStepMode, VertexAttribute, VertexFormat};
 use derive_more::From;
+use crate::{Handle, Slot, SceneGraph, HandleId, reserve_buffer, ShaderPreprocessor};
+use crate::g3d::{GpuMaterial, GpuMesh, MeshVariant, MaterialVariant, Camera};
 
-const VERTEX_INDEX: u32 = 0;
-const INSTANCE_INDEX: u32 = 1;
+const INSTANCE_SLOT: u32 = 0;
+const VERTEX_SLOT: u32 = 1;
 const MATERIAL_INDEX: u32 = 0;
+
+const INSTANCE_LAYOUT: VertexBufferLayout<'static> = VertexBufferLayout {
+    array_stride: size_of::<Mat4>() as u64,
+    step_mode: VertexStepMode::Instance,
+    attributes: &[
+        VertexAttribute {
+            format: VertexFormat::Float32x4,
+            offset: 0*4*4,
+            shader_location: 0,
+        },
+        VertexAttribute {
+            format: VertexFormat::Float32x4,
+            offset: 1*4*4,
+            shader_location: 1,
+        },
+        VertexAttribute {
+            format: VertexFormat::Float32x4,
+            offset: 2*4*4,
+            shader_location: 2,
+        },
+        VertexAttribute {
+            format: VertexFormat::Float32x4,
+            offset: 3*4*4,
+            shader_location: 3,
+        },
+    ],
+};
 
 /// A 3D graphics engine that stores its renderables in a scene graph.
 pub struct G3D {
@@ -36,25 +63,8 @@ impl G3D {
         }
     }
 
-    /// Renders the entire scene graph
-    pub fn render<'s: 'r, 'r>(
-        &'s mut self,
-        scene: &mut SceneGraph<Renderable>,
-        pass: &mut RenderPass<'r>,
-        texture_format: TextureFormat
-    ) {
-       
-        // Prunes nodes that had their handles dropped
-        scene.prune_nodes();
-
-        // Propagate transforms of all renderables
-        let init_transf = Mat4::IDENTITY;
-        scene.propagate(init_transf, |parent_transf, renderable| {
-            renderable.global_transform = parent_transf * renderable.transform;
-            renderable.global_transform
-        });
-
-        // Collects renderables into instance batches (groups of renderables with the same material and mesh)
+    /// Gathers renderables from the scene graph, and produces a job to render later.
+    pub fn prepare_job<'s>(&mut self, scene: &'s SceneGraph<Renderable>, texture_format: TextureFormat) -> RenderJob<'s> {
         let mut renderable_count = 0;
         let mut instance_batches: HashMap<InstanceKey, MatMeshInstances> = HashMap::new();
         for renderable in scene.iter() {
@@ -91,27 +101,35 @@ impl G3D {
             instance_batch.instance_data.push(renderable.global_transform);
             renderable_count += 1;
         }
+        RenderJob {
+            instance_batches: instance_batches.into_values().collect(),
+            renderable_count,
+        }
+    }
+
+    /// Renders a job.
+    pub fn render<'r>(&'r mut self, job: RenderJob<'r>, pass: &mut RenderPass<'r>) {
 
         // Reserve space for all instance data on the GPU buffer
         reserve_buffer(
             &mut self.instance_buffer,
-            renderable_count * size_of::<Mat4>() as u64,
+            job.renderable_count * size_of::<Mat4>() as u64,
             &self.device
         );
 
         // Renders all instance batches
         let mut buffer_offset = 0;
-        for instance_batch in instance_batches.into_values() {
+        for instance_batch in job.instance_batches {
 
             // Uploads instance data to section of instance buffer
             let transform_bytes: &[u8] = bytemuck::cast_slice(&instance_batch.instance_data);
             self.queue.write_buffer(&self.instance_buffer, buffer_offset, transform_bytes);
 
             // Gets material, mesh and pipeline for rendering.
-            let material: &'s GpuMaterial = unsafe {
+            let material: &'r GpuMaterial = unsafe {
                 std::mem::transmute(instance_batch.material_slot.loaded().unwrap())
             };
-            let mesh: &'s GpuMesh = unsafe {
+            let mesh: &'r GpuMesh = unsafe {
                 std::mem::transmute(instance_batch.mesh_slot.loaded().unwrap())
             };
             let pipeline = self.pipelines.get(&instance_batch.pipeline_key).unwrap();
@@ -121,13 +139,28 @@ impl G3D {
             let num_instances = instance_batch.instance_data.len() as u32;
             pass.set_pipeline(pipeline);
             pass.set_bind_group(MATERIAL_INDEX, &material.bind_group, &[]);                     // Material
-            pass.set_vertex_buffer(VERTEX_INDEX, mesh.vertices.slice(..));                      // Mesh vertices
-            pass.set_vertex_buffer(INSTANCE_INDEX, self.instance_buffer.slice(instance_range)); // Instance data
+            pass.set_vertex_buffer(INSTANCE_SLOT, self.instance_buffer.slice(instance_range));  // Instance data
+            pass.set_vertex_buffer(VERTEX_SLOT, mesh.vertices.slice(..));                       // Mesh vertices
             pass.set_index_buffer(mesh.indices.slice(..), mesh.index_format);                   // Mesh indices
             pass.draw_indexed(0..mesh.num_indices, 0, 0..num_instances);
             buffer_offset += transform_bytes.len() as u64;
         }
     }
+}
+
+pub(crate) fn propagate_transforms(scene: &mut SceneGraph<Renderable>) {
+    let init_transf = Mat4::IDENTITY;
+    scene.propagate(init_transf, |parent_transf, renderable| {
+        renderable.global_transform = parent_transf * renderable.transform;
+        renderable.global_transform
+    });
+}
+
+/// Collection of renderables to be rendered at a later time.
+/// As long as a render job is alive, the required renderable resources are read-locked.
+pub struct RenderJob<'a> {
+    instance_batches: Vec<MatMeshInstances<'a>>,
+    renderable_count: u64,
 }
 
 /**
@@ -173,6 +206,8 @@ impl Renderable {
 pub enum RenderableKind {
     /// A material and mesh combo.
     MatMesh(Handle<GpuMaterial>, Handle<GpuMesh>),
+    /// 3D perspective or orthographic camera.
+    Camera(Camera),
     /// No renderable content.
     /// Useful for grouping objects with no visible parent.
     Empty,
@@ -215,7 +250,7 @@ fn create_pipeline(
     let shader_code = shader_defs
         .preprocess(shader_code)
         .unwrap();
-    println!("{shader_code}");
+    //println!("{shader_code}");
     let module = device.create_shader_module(ShaderModuleDescriptor {
         label: Some("g3d_module"),
         source: ShaderSource::Wgsl(shader_code.into()),
@@ -232,7 +267,7 @@ fn create_pipeline(
         vertex: VertexState {
             module: &module,
             entry_point: "vertex_main",
-            buffers: &[vertex_layout],
+            buffers: &[INSTANCE_LAYOUT, vertex_layout],
         },
         primitive: PrimitiveState {
             topology: PrimitiveTopology::TriangleList,

@@ -1,5 +1,5 @@
 use glam::Vec3;
-use crate::{Color, g3d::Mesh, math};
+use crate::{Color, g3d::Mesh};
 
 /**
  * A simple cuboid shape.
@@ -30,27 +30,27 @@ impl From<Cuboid> for Mesh {
 
         // LEFT
         positions.extend([lbf, lbn, ltn, ltf]);
-        normals.extend([math::DIR_LEFT; 4]);
+        normals.extend([Vec3::NEG_X; 4]);
 
         // RIGHT
         positions.extend([rbn, rbf, rtf, rtn]);
-        normals.extend([math::DIR_RIGHT; 4]);
+        normals.extend([Vec3::X; 4]);
 
         // BOTTOM
         positions.extend([lbf, rbf, rbn, lbn]);
-        normals.extend([math::DIR_DOWN; 4]);
+        normals.extend([Vec3::NEG_Y; 4]);
 
         // TOP
         positions.extend([ltn, rtn, rtf, ltf]);
-        normals.extend([math::DIR_UP; 4]);
+        normals.extend([Vec3::Y; 4]);
 
         // NEAR
         positions.extend([lbn, rbn, rtn, ltn]);
-        normals.extend([math::DIR_NEAR; 4]);
+        normals.extend([Vec3::Z; 4]);
 
         // FAR
         positions.extend([rbf, lbf, ltf, rtf]);
-        normals.extend([math::DIR_FAR; 4]);
+        normals.extend([Vec3::NEG_Z; 4]);
 
         Mesh {
             positions,

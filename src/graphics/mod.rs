@@ -40,7 +40,7 @@ impl Plugin for GraphicsPlugin {
 fn render_3d(game: &mut Game, _ctx: RunContext) {
     
     // Extracts resources for rendering
-    let (graphics_state, mut scene, mut g3d) = game.all::<(
+    let (graphics_state, mut g3d_scene, mut g3d) = game.all::<(
         &GraphicsState,
         &mut SceneGraph<g3d::Renderable>,
         &mut g3d::G3D,
@@ -52,12 +52,20 @@ fn render_3d(game: &mut Game, _ctx: RunContext) {
             return;
         }
     };
+    let texture_format = graphics_state.surface_config().format;
 
     // Encodes rendering commands
     let view = surface_tex.texture.create_view(&Default::default());
     let mut encoder = graphics_state.device.create_command_encoder(&CommandEncoderDescriptor::default());
     {
-        // Clear screen
+        // Prune dropped nodes from scene graphs.
+        g3d_scene.prune_nodes();
+
+        // Prepares rendering jobs for graphics engines.
+        g3d::propagate_transforms(&mut g3d_scene);
+        let g3d_job = g3d.prepare_job(&g3d_scene, texture_format);
+
+        // Creates render pass
         let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: None,
             color_attachments: &[
@@ -75,9 +83,8 @@ fn render_3d(game: &mut Game, _ctx: RunContext) {
             occlusion_query_set: None,
         });
 
-        // Render 3D graphics
-        scene.prune_nodes();
-        g3d.render(&mut scene, &mut pass, graphics_state.surface_config().format);
+        // Submits rendering jobs to graphics engines
+        g3d.render(g3d_job, &mut pass);
     }
     
     // Submits encoded commands

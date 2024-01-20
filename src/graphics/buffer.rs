@@ -6,7 +6,6 @@ use wgpu::{Buffer, Device, BufferDescriptor};
  */
 pub fn reserve_buffer(buffer: &mut Buffer, size: u64, device: &Device) {
     if size > buffer.size() {
-        println!("Size: {size}");
         *buffer = device.create_buffer(&BufferDescriptor {
             label: None,
             size,

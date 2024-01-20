@@ -36,11 +36,10 @@ pub struct Mesh {
     pub uvs:        Option<Vec<Vec2>>,
 }
 impl Mesh {
-
-    const POSITION_LOCATION: u32    = 0;
-    const COLOR_LOCATION: u32       = 1;
-    const NORMAL_LOCATION: u32      = 2;
-    const UV_LOCATION: u32          = 3;
+    const POSITION_LOCATION: u32    = 4;
+    const COLOR_LOCATION: u32       = 5;
+    const NORMAL_LOCATION: u32      = 6;
+    const UV_LOCATION: u32          = 7;
 
     const POSITION_SIZE: usize      = size_of::<Vec3>();
     const COLOR_SIZE: usize         = size_of::<Color>();

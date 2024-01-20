@@ -1,4 +1,4 @@
-use glam::Vec3;
+use glam::{Vec3, Affine3A};
 use hecs::World;
 use hecs_game::{g3d, App, EnginePlugin, AppBuilder, Color, Handle, GraphicsState, SceneGraph};
 
@@ -29,12 +29,11 @@ fn plugin(builder: &mut AppBuilder) {
     // Uploads material and mesh to GPU.
     let gpu_material = g3d::GpuMaterial::from_material(&material, &state.device);
     let gpu_mesh = g3d::GpuMesh::from_mesh(&mesh, &state.device);
+    let renderable = g3d::Renderable::mat_mesh(Handle::new(gpu_material), Handle::new(gpu_mesh))
+        .with_transform(Affine3A::from_translation(Vec3::new(0.0, 0.0, 0.0)));
 
     // Places renderable in 3D scene.
-    let tracker = scene.insert(g3d::Renderable::mat_mesh(
-        Handle::new(gpu_material),
-        Handle::new(gpu_mesh)
-    ));
+    let tracker = scene.insert(renderable);
 
     // Spawns entity
     world.spawn((tracker,));
