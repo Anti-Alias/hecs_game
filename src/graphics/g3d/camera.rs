@@ -1,56 +1,43 @@
 use glam::Mat4;
 
+/**
+ * Graphical camera which controls what can be seen and from what perspective.
+ */
 pub struct Camera {
     pub target: CameraTarget,
-    pub projection: Projection,
+    pub projection: Mat4,
 }
 
-pub enum CameraTarget {
-    OnScreen,
-    OffScreen,
-}
+impl Camera {
 
-/**
- * Either an orthographic or perspective camera projection.
- */
-pub enum Projection {
-    Orthographic(OrthographicProjection),
-    Perspective(PerspectiveProjection),
-}
+    pub fn new(projection: Mat4) -> Self {
+        Self {
+            target: CameraTarget::OnScreen,
+            projection,
+        }
+    }
 
-impl Projection {
-    pub fn matrix(&self) -> Mat4 {
-        match self {
-            Self::Orthographic(ortho) => Mat4::orthographic_lh(
-                ortho.left,
-                ortho.right,
-                ortho.bottom,
-                ortho.top,
-                ortho.near,
-                ortho.far
-            ),
-            Self::Perspective(persp) => Mat4::perspective_lh(
-                persp.fov,
-                persp.aspect_ratio,
-                persp.near,
-                persp.far
-            ),
+    pub fn orthographic(left: f32, right: f32, bottom: f32, top: f32, near: f32, far: f32) -> Self {
+        let projection = Mat4::orthographic_rh(left, right, bottom, top, near, far);
+        Self {
+            target: CameraTarget::OnScreen,
+            projection,
+        }
+    }
+
+    pub fn perspective(fov: f32, aspect_ratio: f32, near: f32, far: f32) -> Self {
+        let projection = Mat4::perspective_rh(fov, aspect_ratio, near, far);
+        Self {
+            target: CameraTarget::OnScreen,
+            projection,
         }
     }
 }
 
-pub struct OrthographicProjection {
-    pub left: f32,
-    pub right: f32,
-    pub bottom: f32,
-    pub top: f32,
-    pub near: f32,
-    pub far: f32,
-}
-
-pub struct PerspectiveProjection {
-    pub fov: f32,
-    pub aspect_ratio: f32,
-    pub near: f32,
-    pub far: f32,
+/**
+ * Which texture to render to.
+ */
+pub enum CameraTarget {
+    OnScreen,
+    OffScreen,
 }

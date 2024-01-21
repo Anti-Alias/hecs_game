@@ -67,7 +67,7 @@ impl G3D {
     /// Generates render jobs for every camera in the scene graph.
     pub fn prepare_jobs<'s>(
         &mut self,
-        scene: FlatScene<'s>,
+        flat_scene: FlatScene<'s>,
         texture_format: TextureFormat,
         depth_format: TextureFormat,
     ) -> RenderJobs<'s> {
@@ -76,15 +76,15 @@ impl G3D {
         let mut renderable_count = 0;
 
         // Collects N RenderJobs for N cameras.
-        for camera in scene.cameras {
-            let proj = camera.camera.projection.matrix();
-            let view = camera.global_transform.inverse();
+        for flat_cam in flat_scene.flat_cams {
+            let proj = flat_cam.camera.projection;
+            let view = flat_cam.global_transform.inverse();
             let proj_view = proj * view;
             let mut instance_batches: HashMap<InstanceKey, MatMeshInstances> = HashMap::new();
-            for mat_mesh in &scene.mat_meshes {
+            for flat_mat_mesh in &flat_scene.flat_mat_meshes {
 
                 // Extracts material and mesh from renderable. Skips if not loaded.
-                let MatMesh(material_handle, mesh_handle) = mat_mesh.mat_mesh;
+                let MatMesh(material_handle, mesh_handle) = flat_mat_mesh.mat_mesh;
                 let material_slot = material_handle.slot();
                 let mesh_slot = mesh_handle.slot();
                 let Some(material) = material_slot.loaded() else { continue };
@@ -112,11 +112,11 @@ impl G3D {
                     });
                 
                 // Inserts instance data into that batch.
-                instance_batch.instance_data.push(proj_view * mat_mesh.global_transform);
+                instance_batch.instance_data.push(proj_view * flat_mat_mesh.global_transform);
                 renderable_count += 1;
             }
             jobs.push(RenderJob {
-                camera,
+                camera: flat_cam,
                 instance_batches: instance_batches.into_values().collect(),
             });
         }
@@ -193,7 +193,7 @@ pub struct RenderJobs<'a> {
     renderable_count: u64,
 }
 
-/// Collection of "flattened" renderables to berendered at a later time.
+/// Collection of "flattened" renderables to be rendered at a later time.
 /// Note: As long as a render job is alive, the required renderable resources are read-locked.
 /// This is necessary in order for the render pass to have stable pointers for its lifetime.
 /// A RenderJob must outlive the render pass that uses it.
@@ -361,26 +361,26 @@ fn create_pipeline(
 
 /// A flattened [`SceneGraph`] where renderable is separated by type.
 pub(crate) struct FlatScene<'a> {
-    mat_meshes: Vec<FlatMatMesh<'a>>,
-    cameras: Vec<FlatCamera<'a>>,
+    flat_mat_meshes: Vec<FlatMatMesh<'a>>,
+    flat_cams: Vec<FlatCamera<'a>>,
 }
 
 impl<'a> FlatScene<'a> {
 
     fn new() -> Self {
         Self {
-            mat_meshes: Vec::new(),
-            cameras: Vec::new(),
+            flat_mat_meshes: Vec::new(),
+            flat_cams: Vec::new(),
         }
     }
 
     fn add(&mut self, renderable: &'a Renderable, global_transform: Mat4) {
         match &renderable.kind {
-            RenderableKind::MatMesh(mat_mesh) => self.mat_meshes.push(FlatMatMesh {
+            RenderableKind::MatMesh(mat_mesh) => self.flat_mat_meshes.push(FlatMatMesh {
                 mat_mesh,
                 global_transform,
             }),
-            RenderableKind::Camera(camera) => self.cameras.push(FlatCamera {
+            RenderableKind::Camera(camera) => self.flat_cams.push(FlatCamera {
                 camera,
                 global_transform,
             }),

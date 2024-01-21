@@ -1,6 +1,6 @@
 use std::f32::consts::TAU;
 use glam::{Vec3, Quat};
-use hecs_game::g3d::{Camera, OrthographicProjection};
+use hecs_game::g3d::Camera;
 use hecs_game::math::Transform;
 use hecs_game::{g3d, App, EnginePlugin, AppBuilder, Color, Handle, GraphicsState, SceneGraph, Stage, RunContext, Game};
 use hecs::World;
@@ -26,17 +26,8 @@ fn plugin(builder: &mut AppBuilder) {
         .all::<(&mut World, &GraphicsState, &mut SceneGraph<g3d::Renderable>)>();
 
     // Spawns camera
-    let camera = Camera {
-        target: g3d::CameraTarget::OnScreen,
-        projection: g3d::Projection::Orthographic(OrthographicProjection {
-            left: -1.0,
-            right: 1.0,
-            bottom: -1.0,
-            top: 1.0,
-            near: 0.0,
-            far: 100.0,
-        }),
-    };
+    //let camera = Camera::perspective(80.0, state.aspect_ratio(), 0.1, 1000.0);
+    let camera = Camera::orthographic(-1.0, 1.0, -1.0, 1.0, 0.0, 100.0);
     let camera = g3d::Renderable::camera(camera);
     let cam_tracker = scene.insert(camera);
     let cam_transform = Transform::IDENTITY;
@@ -75,7 +66,7 @@ fn plugin(builder: &mut AppBuilder) {
             .with_translation(Vec3::new(
                 rng.gen::<f32>() * 2.0 - 1.0,
                 rng.gen::<f32>() * 2.0 - 1.0,
-                1.0,
+                -1.0,
             ))
             .with_scale(Vec3::splat(scale));
 

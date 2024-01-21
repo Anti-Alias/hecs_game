@@ -51,30 +51,45 @@ impl GraphicsState {
         }
     }
 
-    pub fn resize(&mut self, width: u32, height: u32) {
-        self.surface_config.width = width.max(1);
-        self.surface_config.height = height.max(1);
-        self.surface.configure(&self.device, &self.surface_config);
-        self.depth_view = create_depth_view(&self.device, width, height, self.depth_format);
-    }
-
-    /**
-     * Current texture view to render on.
-    */
+    /// Current texture view to render on.
     pub fn surface(&self) -> &Surface {
         &self.surface
     }
 
-    pub fn surface_config(&self) -> &SurfaceConfiguration {
-        &self.surface_config
+    /// Convenience method for getting the surface's size in pixels.
+    pub fn surface_size(&self) -> (u32, u32) {
+        (self.surface_config.width, self.surface_config.height)
     }
 
+    /// Convenience method for getting the surface's aspect ratio (height / width).
+    pub fn surface_aspect_ratio(&self) -> f32 {
+        let width = self.surface_config.width as f32;
+        let height = self.surface_config.width as f32;
+        height / width
+    }
+
+    /// Format of the surface's texture.
+    pub fn surface_format(&self) -> TextureFormat {
+        self.surface_config.format
+    }
+
+    /// Format of the depth buffer.
     pub fn depth_format(&self) -> TextureFormat {
         self.depth_format
     }
 
+    /// Texture view of the depth buffer.
     pub fn depth_view(&self) -> &TextureView {
         &self.depth_view
+    }
+
+    /// Resizes pixel size of surface.
+    /// Commonly invoked when window size changes.
+    pub(crate) fn resize(&mut self, width: u32, height: u32) {
+        self.surface_config.width = width.max(1);
+        self.surface_config.height = height.max(1);
+        self.surface.configure(&self.device, &self.surface_config);
+        self.depth_view = create_depth_view(&self.device, width, height, self.depth_format);
     }
 }
 

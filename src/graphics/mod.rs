@@ -53,7 +53,7 @@ fn render_3d(game: &mut Game, _ctx: RunContext) {
             return;
         }
     };
-    let texture_format = graphics_state.surface_config().format;
+    let texture_format = graphics_state.surface_format();
     let depth_format = graphics_state.depth_format();
     let depth_view = graphics_state.depth_view();
 
