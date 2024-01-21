@@ -6,26 +6,62 @@ use crate::{Plugin, AppBuilder};
 pub struct InputPlugin;
 impl Plugin for InputPlugin {
     fn install(&mut self, builder: &mut AppBuilder) {
-        builder.game().add(Input::new());
+        builder.game().add(Keyboard::new());
     }
 }
 
-/**
- * An input domain.
- */
-pub struct Input {
-    pub keyboard: ButtonState<KeyCode>,
+pub struct Keyboard {
+    keys: ButtonState<KeyCode>,
 }
 
-impl Input {
+impl Keyboard {
+
     pub fn new() -> Self {
         Self {
-            keyboard: ButtonState::<KeyCode>::new() 
+            keys: ButtonState::new(),
         }
     }
 
+    /**
+     * True if a button is pressed.
+    */
+    pub fn is_pressed(&mut self, key: KeyCode) -> bool {
+        self.keys.is_pressed(key)
+    }
+
+    /**
+     * True if a button is pressed, but wasn't in the previous tick.
+    */
+    pub fn is_just_pressed(&mut self, key: KeyCode) -> bool {
+        self.keys.is_just_pressed(key)
+    }
+
+    /**
+     * True if a button is not pressed, but wasn in the previous tick.
+    */
+    pub fn is_just_released(&mut self, key: KeyCode) -> bool {
+        self.keys.is_just_released(key)
+    }
+
+        /**
+     * Simulates a button press.
+    */
+    pub fn press(&mut self, key: KeyCode) {
+        self.keys.press(key);
+    }
+
+    /**
+     * Simulates a button release.
+    */
+    pub fn release(&mut self, key: KeyCode) {
+        self.keys.release(key);
+    }
+
+    /**
+     * Sync previous button state with current button state.
+    */
     pub fn sync_previous_state(&mut self) {
-        self.keyboard.sync_previous_state();
+        self.keys.sync_previous_state()
     }
 }
 

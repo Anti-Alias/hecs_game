@@ -4,7 +4,7 @@ use winit::event::{WindowEvent, Event, ElementState};
 use winit::event_loop::{EventLoop, EventLoopWindowTarget};
 use winit::keyboard::PhysicalKey;
 use winit::window::{WindowBuilder, Window};
-use crate::{App, Input, ExternalRequest, GraphicsState, AppBuilder, AppRunner, Plugin};
+use crate::{App, ExternalRequest, GraphicsState, AppBuilder, AppRunner, Plugin, Keyboard};
 
 /// Opens a window and injects a [`GraphicsState`] for use in a graphics engine.
 /// Adds a runner that is synced with the framerate.
@@ -28,9 +28,7 @@ impl Plugin for WindowPlugin {
     fn install(&mut self, builder: &mut AppBuilder) {
         let event_loop = EventLoop::new().unwrap();
         let window = WindowBuilder::new().build(&event_loop).unwrap();
-        builder.game()
-            .init(|_| Input::new())
-            .init(|_| GraphicsState::new(&window, TextureFormat::Depth24Plus));
+        builder.game().init(|_| GraphicsState::new(&window, TextureFormat::Depth24Plus));
         builder.runner(WindowRunner {
             frame_rate: self.frame_rate,
             window_width: self.window_width,
@@ -112,15 +110,15 @@ fn handle_window_event(
                 PhysicalKey::Code(key_code) => key_code,
                 PhysicalKey::Unidentified(_) => return,
             };
-            let mut input = app.game.get::<&mut Input>();
+            let mut keyboard = app.game.get::<&mut Keyboard>();
             match event.state {
-                ElementState::Pressed => input.keyboard.press(key_code),
-                ElementState::Released => input.keyboard.release(key_code),
+                ElementState::Pressed => keyboard.press(key_code),
+                ElementState::Released => keyboard.release(key_code),
             }
         },
         WindowEvent::RedrawRequested => {
             run_game_logic(app, last_update, target);               // Game logic
-            app.game.get::<&mut Input>().sync_previous_state();     // Sync Input with previous state
+            app.game.get::<&mut Keyboard>().sync_previous_state();  // Sync Input with previous state
             window.request_redraw();                                // Submits request to render next frame
         },
         WindowEvent::CloseRequested => target.exit(),
