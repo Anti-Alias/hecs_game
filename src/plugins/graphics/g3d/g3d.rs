@@ -116,7 +116,6 @@ impl G3D {
                 renderable_count += 1;
             }
             jobs.push(RenderJob {
-                camera: flat_cam,
                 instance_batches: instance_batches.into_values().collect(),
             });
         }
@@ -198,7 +197,6 @@ pub struct RenderJobs<'a> {
 /// This is necessary in order for the render pass to have stable pointers for its lifetime.
 /// A RenderJob must outlive the render pass that uses it.
 struct RenderJob<'a> {
-    camera: FlatCamera<'a>,
     instance_batches: Vec<MatMeshInstances<'a>>,
 }
 

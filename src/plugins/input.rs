@@ -1,6 +1,14 @@
 use std::collections::HashSet;
 use std::hash::Hash;
 use winit::keyboard::KeyCode;
+use crate::{Plugin, AppBuilder};
+
+pub struct InputPlugin;
+impl Plugin for InputPlugin {
+    fn install(&mut self, builder: &mut AppBuilder) {
+        builder.game().add(Input::new());
+    }
+}
 
 /**
  * An input domain.

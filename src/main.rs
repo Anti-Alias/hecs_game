@@ -2,7 +2,7 @@ use std::f32::consts::TAU;
 use glam::{Vec3, Quat};
 use hecs_game::g3d::Camera;
 use hecs_game::math::Transform;
-use hecs_game::{g3d, App, EnginePlugin, AppBuilder, Color, Handle, GraphicsState, SceneGraph, Stage, RunContext, Game};
+use hecs_game::{g3d, App, ClientPlugin, AppBuilder, Color, Handle, GraphicsState, SceneGraph, Stage, RunContext, Game};
 use hecs::World;
 use rand::{SeedableRng, Rng};
 use rand::rngs::SmallRng;
@@ -11,7 +11,7 @@ fn main() {
     env_logger::init();
     let mut builder = App::builder();
     builder
-        .plugin(EnginePlugin)
+        .plugin(ClientPlugin)
         .plugin(plugin);
     builder.run();
 }

@@ -2,7 +2,6 @@ use std::collections::HashSet;
 use slotmap::{new_key_type, SlotMap};
 use smallvec::SmallVec;
 use derive_more::*;
-
 use crate::{TrackerSender, Trackee, TrackerReceiver, tracker_channel, Tracker};
 
 /// A hierarchical collection of [`Node`]s with parent/child relationships.

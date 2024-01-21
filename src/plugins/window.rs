@@ -8,13 +8,13 @@ use crate::{App, Input, ExternalRequest, GraphicsState, AppBuilder, AppRunner, P
 
 /// Opens a window and injects a [`GraphicsState`] for use in a graphics engine.
 /// Adds a runner that is synced with the framerate.
-pub struct WinitPlugin {
+pub struct WindowPlugin {
     frame_rate: u32,
     window_width: u32,
     window_height: u32,
 }
 
-impl Default for WinitPlugin {
+impl Default for WindowPlugin {
     fn default() -> Self {
         Self {
             frame_rate: 60,
@@ -24,14 +24,14 @@ impl Default for WinitPlugin {
     }
 }
 
-impl Plugin for WinitPlugin {
+impl Plugin for WindowPlugin {
     fn install(&mut self, builder: &mut AppBuilder) {
         let event_loop = EventLoop::new().unwrap();
         let window = WindowBuilder::new().build(&event_loop).unwrap();
         builder.game()
             .init(|_| Input::new())
             .init(|_| GraphicsState::new(&window, TextureFormat::Depth24Plus));
-        builder.runner(WinitRunner {
+        builder.runner(WindowRunner {
             frame_rate: self.frame_rate,
             window_width: self.window_width,
             window_height: self.window_height,
@@ -45,7 +45,7 @@ impl Plugin for WinitPlugin {
  * Opens a window and uses it to power an underlying [`App`].
  * For rendering applications on Windows, Linux and OSX.
  */
-pub struct WinitRunner {
+pub struct WindowRunner {
     frame_rate: u32,
     window_width: u32,
     window_height: u32,
@@ -53,7 +53,7 @@ pub struct WinitRunner {
     window: Window,
 }
 
-impl WinitRunner {
+impl WindowRunner {
     
     /// Desired frame rate when in exclusive fullscreen mode.
     pub fn with_frame_rate(mut self, frame_rate: u32) -> Self {
@@ -69,7 +69,7 @@ impl WinitRunner {
     }
 }
 
-impl AppRunner for WinitRunner {
+impl AppRunner for WindowRunner {
     fn run(&mut self, mut app: App) {
 
         let event_loop = self.event_loop.take().unwrap();

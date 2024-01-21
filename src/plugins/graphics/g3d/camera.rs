@@ -8,6 +8,15 @@ pub struct Camera {
     pub projection: Mat4,
 }
 
+impl Default for Camera {
+    fn default() -> Self {
+        Self {
+            target: CameraTarget::OnScreen,
+            projection: Mat4::IDENTITY,
+        }
+    }
+}
+
 impl Camera {
 
     pub fn new(projection: Mat4) -> Self {
