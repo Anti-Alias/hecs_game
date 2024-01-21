@@ -17,7 +17,7 @@ pub use scene::*;
 pub use buffer::*;
 use wgpu::{CommandEncoderDescriptor, RenderPassDescriptor, RenderPassColorAttachment, Operations, LoadOp, Color as WgpuColor, StoreOp, RenderPassDepthStencilAttachment};
 use crate::math::Transform;
-use crate::{RunContext, Game, AppBuilder, Stage, Plugin};
+use crate::{RunContext, Game, AppBuilder, Stage, Plugin, Tracker};
 
 /// Adds primitive [`GraphicsState`].
 /// Adds a 2D and 3D graphics engine.
@@ -58,8 +58,8 @@ fn render_3d(game: &mut Game, _ctx: RunContext) {
     let depth_view = graphics_state.depth_view();
 
     // Syncs transforms
-    for (_, (transform, tracker)) in world.query_mut::<(&Transform, &NodeTracker<g3d::Renderable>)>() {
-        let Some(renderable) = g3d_scene.get_mut(tracker.node_id()) else { continue };
+    for (_, (transform, tracker)) in world.query_mut::<(&Transform, &Tracker<g3d::Renderable>)>() {
+        let Some(renderable) = g3d_scene.get_mut(tracker.id()) else { continue };
         renderable.transform = *transform;
     }
 
@@ -71,7 +71,7 @@ fn render_3d(game: &mut Game, _ctx: RunContext) {
     let mut encoder = graphics_state.device.create_command_encoder(&CommandEncoderDescriptor::default());
     {
         let flat_scene = g3d::flatten_scene(&g3d_scene);
-        let g3d_job = g3d.prepare_job(flat_scene, texture_format, depth_format);
+        let g3d_jobs = g3d.prepare_jobs(flat_scene, texture_format, depth_format);
 
         // Creates render pass
         let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
@@ -99,7 +99,7 @@ fn render_3d(game: &mut Game, _ctx: RunContext) {
         });
 
         // Submits rendering jobs to graphics engines
-        g3d.render(g3d_job, &mut pass);
+        g3d.render_jobs(g3d_jobs, &mut pass);
     }
     
     // Encoded render

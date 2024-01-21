@@ -1,25 +1,26 @@
 use std::collections::HashSet;
-use std::marker::PhantomData;
-use std::sync::mpsc::{Sender, Receiver, self};
-
 use slotmap::{new_key_type, SlotMap};
 use smallvec::SmallVec;
 use derive_more::*;
 
-/**
- * Collection of [`Node`] with parent/child relationships.
- */
-pub struct SceneGraph<V> {
-    root_ids: HashSet<NodeId>,
-    nodes: SlotMap<NodeId, Node<V>>,
-    sender: Sender<NodeMessage>,
-    receiver: Receiver<NodeMessage>,
+use crate::{TrackerSender, Trackee, TrackerReceiver, tracker_channel, Tracker};
+
+/// A hierarchical collection of [`Node`]s with parent/child relationships.
+/// Useful for representing the graphics of a game, where each [`Node`] contains a renderable object.
+///
+/// * `R` - Renderable type.
+///
+pub struct SceneGraph<R: Trackee> {
+    root_ids: HashSet<R::Id>,
+    nodes: SlotMap<R::Id, Node<R>>,
+    sender: TrackerSender<R>,
+    receiver: TrackerReceiver<R>,
 }
 
-impl<V> SceneGraph<V> {
+impl<R: Trackee> SceneGraph<R> {
 
     pub fn new() -> Self {
-        let (sender, receiver) = mpsc::channel();
+        let (sender, receiver) = tracker_channel();
         Self {
             root_ids: HashSet::new(),
             nodes: SlotMap::default(),
@@ -28,14 +29,14 @@ impl<V> SceneGraph<V> {
         }
     }
 
-    pub fn root_ids(&self) -> &HashSet<NodeId> {
+    pub fn root_ids(&self) -> &HashSet<R::Id> {
         &self.root_ids
     }
 
     /**
-     * Iterator over all objects in the scene.
+     * Iterator over all objects in the scene in no particular order.
      */
-    pub fn iter(&self) -> impl Iterator<Item = &V> {
+    pub fn iter(&self) -> impl Iterator<Item = &R> {
         self.nodes
             .values()
             .map(|node| &node.value)
@@ -44,18 +45,15 @@ impl<V> SceneGraph<V> {
     /**
      * Inserts a root object and returns a tracker.
      */
-    pub fn insert(&mut self, value: V) -> NodeTracker<V> {
-        NodeTracker {
-            node_id: self.insert_untracked(value),
-            sender: self.sender.clone(),
-            phantom: PhantomData,
-        }
+    pub fn insert(&mut self, value: R) -> Tracker<R> {
+        let id = self.insert_untracked(value);
+        Tracker::new(id, self.sender.clone())
     }
 
     /**
      * Inserts a root object and returns its id.
      */
-    pub fn insert_untracked(&mut self, value: V) -> NodeId {
+    pub fn insert_untracked(&mut self, value: R) -> R::Id {
         let node = Node {
             value,
             parent_id: None,
@@ -69,7 +67,7 @@ impl<V> SceneGraph<V> {
     /**
      * Inserts an object as a child of another.
      */
-    pub fn insert_child(&mut self, value: V, parent_id: NodeId) -> Result<NodeId, SceneGraphError> {
+    pub fn insert_child(&mut self, value: R, parent_id: R::Id) -> Result<R::Id, SceneGraphError> {
         let node = Node {
             value,
             parent_id: Some(parent_id),
@@ -89,19 +87,15 @@ impl<V> SceneGraph<V> {
     /**
      * Inserts an object as a child of another.
      */
-    pub fn insert_child_tracked(&mut self, value: V, parent_id: NodeId) -> Result<NodeTracker<V>, SceneGraphError> {
+    pub fn insert_child_tracked(&mut self, value: R, parent_id: R::Id) -> Result<Tracker<R>, SceneGraphError> {
         let node_id = self.insert_child(value, parent_id)?;
-        Ok(NodeTracker {
-            node_id,
-            sender: self.sender.clone(),
-            phantom: PhantomData,
-        })
+        Ok(Tracker::new(node_id, self.sender.clone()))
     }
 
     /**
      * Gets an object by id.
      */
-    pub fn get(&self, node_id: NodeId) -> Option<&V> {
+    pub fn get(&self, node_id: R::Id) -> Option<&R> {
         self.nodes
             .get(node_id)
             .map(|node| &node.value)
@@ -110,7 +104,7 @@ impl<V> SceneGraph<V> {
     /**
      * Gets an object by id.
      */
-    pub fn get_mut(&mut self, node_id: NodeId) -> Option<&mut V> {
+    pub fn get_mut(&mut self, node_id: R::Id) -> Option<&mut R> {
         self.nodes
             .get_mut(node_id)
             .map(|node| &mut node.value)
@@ -119,14 +113,14 @@ impl<V> SceneGraph<V> {
     /**
      * True if object is stored.
      */
-    pub fn contains(&mut self, node_id: NodeId) -> bool {
+    pub fn contains(&mut self, node_id: R::Id) -> bool {
         self.nodes.contains_key(node_id)
     }
 
     /**
      * Removes an object recursively.
      */
-    pub fn remove(&mut self, node_id: NodeId) -> Option<V> {
+    pub fn remove(&mut self, node_id: R::Id) -> Option<R> {
         if !self.root_ids.remove(&node_id) {
             return None;
         }
@@ -138,7 +132,7 @@ impl<V> SceneGraph<V> {
      * Its children, if any, are reparented to the removed node's parent.
      * If the removed node did not have a parent, they become root nodes.
      */
-    pub fn remove_reparent(&mut self, node_id: NodeId) -> Option<V> {
+    pub fn remove_reparent(&mut self, node_id: R::Id) -> Option<R> {
         let mut node = self.nodes.remove(node_id)?;
 
         // Children are reparented
@@ -166,23 +160,20 @@ impl<V> SceneGraph<V> {
     }
 
     /**
-     * Removes all objects.
+     * Removes all [`Node`]s.
      */
     pub fn clear(&mut self) {
         self.nodes.clear();
     }
 
     /**
-     * Drops [`Node`]s that hand their handles destroyed.
+     * Removes [`Node`]s that hand their trackers dropped.
+     * Descendants are also removed.
     */
     pub fn prune_nodes(&mut self) {
-        for message in self.receiver.try_iter() {
-            match message {
-                NodeMessage::DropNode(node_id) => {
-                    if !self.root_ids.remove(&node_id) { continue };
-                    remove(node_id, &mut self.nodes)
-                },
-            };
+        for node_id in self.receiver.iter() {
+            if !self.root_ids.remove(&node_id) { continue };
+            remove(node_id, &mut self.nodes);
         }
     }
 
@@ -192,7 +183,7 @@ impl<V> SceneGraph<V> {
     pub fn propagate<'a, A, F>(&'a self, accum: A, mut function: F)
     where
         A: Clone,
-        F: FnMut(A, &'a V) -> A
+        F: FnMut(A, &'a R) -> A
     {
         for root_id in &self.root_ids {
             propagate_at(&self.nodes, *root_id, accum.clone(), &mut function);
@@ -200,7 +191,7 @@ impl<V> SceneGraph<V> {
     }
 }
 
-fn remove<V>(node_id: NodeId, nodes: &mut SlotMap<NodeId, Node<V>>) -> Option<V> {
+fn remove<R: Trackee>(node_id: R::Id, nodes: &mut SlotMap<R::Id, Node<R>>) -> Option<R> {
     let mut node = nodes.remove(node_id)?;
     for child_id in &node.children_ids {
         remove(*child_id, nodes);
@@ -210,10 +201,10 @@ fn remove<V>(node_id: NodeId, nodes: &mut SlotMap<NodeId, Node<V>>) -> Option<V>
     Some(node.value)
 }
 
-fn propagate_at<'a, V, A, F>(nodes: &'a SlotMap<NodeId, Node<V>>, node_id: NodeId, accum: A, function: &mut F)
+fn propagate_at<'a, R: Trackee, A, F>(nodes: &'a SlotMap<R::Id, Node<R>>, node_id: R::Id, accum: A, function: &mut F)
 where
     A: Clone,
-    F: FnMut(A, &'a V) -> A
+    F: FnMut(A, &'a R) -> A
 {
     let node = nodes.get(node_id).unwrap();
     let current = function(accum, &node.value);
@@ -223,10 +214,10 @@ where
 }
 
 /// Container of a scene graph value, and a reference to its parent and children.
-struct Node<V> {
-    value: V,
-    parent_id: Option<NodeId>,
-    children_ids: SmallVec<[NodeId; 8]>,
+struct Node<R: Trackee> {
+    value: R,
+    parent_id: Option<R::Id>,
+    children_ids: SmallVec<[R::Id; 8]>,
 }
 
 new_key_type! {
@@ -234,29 +225,6 @@ new_key_type! {
      * ID for a [`Node`].
      */
     pub struct NodeId;
-}
-
-/// A tracked handle to an object in a [`SceneGraph`].
-/// When the handle drops, the object and its descendants get removed.
-#[derive(Debug)]
-pub struct NodeTracker<V> {
-    node_id: NodeId,
-    sender: Sender<NodeMessage>,
-    phantom: PhantomData<V>,
-}
-
-impl<V> NodeTracker<V> {
-    pub fn node_id(&self) -> NodeId { self.node_id }
-}
-
-impl<V> Drop for NodeTracker<V> {
-    fn drop(&mut self) {
-        let _ = self.sender.send(NodeMessage::DropNode(self.node_id));
-    }
-}
-
-enum NodeMessage {
-    DropNode(NodeId),
 }
 
 #[derive(Error, Display, Debug, From)]

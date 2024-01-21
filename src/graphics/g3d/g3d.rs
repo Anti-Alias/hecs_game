@@ -5,7 +5,7 @@ use glam::{Mat4, Affine3A};
 use wgpu::{RenderPass, Device, Queue, RenderPipeline, BufferUsages, Buffer, BufferDescriptor, RenderPipelineDescriptor, PipelineLayoutDescriptor, VertexState, PrimitiveState, PrimitiveTopology, FrontFace, PolygonMode, FragmentState, TextureFormat, ColorTargetState, BlendState, ColorWrites, ShaderModuleDescriptor, ShaderSource, VertexBufferLayout, VertexStepMode, VertexAttribute, VertexFormat, DepthStencilState, CompareFunction, StencilState, DepthBiasState};
 use derive_more::From;
 use crate::math::Transform;
-use crate::{Handle, Slot, SceneGraph, HandleId, reserve_buffer, ShaderPreprocessor};
+use crate::{Handle, Slot, SceneGraph, HandleId, reserve_buffer, ShaderPreprocessor, Trackee, NodeId};
 use crate::g3d::{GpuMaterial, GpuMesh, MeshVariant, MaterialVariant, Camera};
 
 const INSTANCE_SLOT: u32 = 0;
@@ -40,7 +40,7 @@ const INSTANCE_LAYOUT: VertexBufferLayout<'static> = VertexBufferLayout {
 };
 
 /// A 3D graphics engine that stores its renderables in a scene graph.
-pub struct G3D {
+pub(crate) struct G3D {
     pipelines: HashMap<PipelineKey, RenderPipeline>,    // Cache of render pipelines to use
     device: Arc<Device>,
     queue: Arc<Queue>,
@@ -65,70 +65,86 @@ impl G3D {
     }
 
     /// Generates render jobs for every camera in the scene graph.
-    pub(crate) fn prepare_job<'s>(
+    pub fn prepare_jobs<'s>(
         &mut self,
         scene: FlatScene<'s>,
         texture_format: TextureFormat,
         depth_format: TextureFormat,
-    ) -> RenderJob<'s> {
+    ) -> RenderJobs<'s> {
+        
+        let mut jobs = Vec::new();
         let mut renderable_count = 0;
-        let mut instance_batches: HashMap<InstanceKey, MatMeshInstances> = HashMap::new();
-        for mat_mesh in scene.mat_meshes {
 
-            // Extracts MatMesh from renderable. Skips if empty or not loaded.
-            let MatMesh(material_handle, mesh_handle) = mat_mesh.mat_mesh;
-            let material_slot = material_handle.slot();
-            let mesh_slot = mesh_handle.slot();
-            let Some(material) = material_slot.loaded() else { continue };
-            let Some(mesh) = mesh_slot.loaded() else { continue };
+        // Collects N RenderJobs for N cameras.
+        for camera in scene.cameras {
+            let proj = camera.camera.projection.matrix();
+            let view = camera.global_transform.inverse();
+            let proj_view = proj * view;
+            let mut instance_batches: HashMap<InstanceKey, MatMeshInstances> = HashMap::new();
+            for mat_mesh in &scene.mat_meshes {
 
-            // Creates pipeline compatible with material and mesh.
-            // Does nothing if already cached.
-            let pipeline_key = PipelineKey(mesh.variant, material.variant);
-            self.pipelines
-                .entry(pipeline_key)
-                .or_insert_with(|| create_pipeline(&material, &mesh, texture_format, depth_format, &self.device));
+                // Extracts material and mesh from renderable. Skips if not loaded.
+                let MatMesh(material_handle, mesh_handle) = mat_mesh.mat_mesh;
+                let material_slot = material_handle.slot();
+                let mesh_slot = mesh_handle.slot();
+                let Some(material) = material_slot.loaded() else { continue };
+                let Some(mesh) = mesh_slot.loaded() else { continue };
 
-            // Fetches batch for material and mesh.
-            // Creates it if it does not exist.
-            let instance_batch = instance_batches
-                .entry(InstanceKey {
-                    material_id: material_handle.id(),
-                    mesh_id: mesh_handle.id(),
-                })
-                .or_insert_with(|| MatMeshInstances {
-                    material_slot,
-                    mesh_slot,
-                    pipeline_key,
-                    instance_data: Vec::new(),
-                });
-            
-            // Inserts instance data into that batch.
-            instance_batch.instance_data.push(mat_mesh.global_transform);
-            renderable_count += 1;
+                // Creates pipeline compatible with material and mesh.
+                // Does nothing if already cached.
+                let pipeline_key = PipelineKey(mesh.variant, material.variant);
+                self.pipelines
+                    .entry(pipeline_key)
+                    .or_insert_with(|| create_pipeline(&material, &mesh, texture_format, depth_format, &self.device));
+
+                // Fetches instance batch for material and mesh.
+                // Creates it if it does not exist.
+                let instance_batch = instance_batches
+                    .entry(InstanceKey {
+                        material_id: material_handle.id(),
+                        mesh_id: mesh_handle.id(),
+                    })
+                    .or_insert_with(|| MatMeshInstances {
+                        material_slot,
+                        mesh_slot,
+                        pipeline_key,
+                        instance_data: Vec::new(),
+                    });
+                
+                // Inserts instance data into that batch.
+                instance_batch.instance_data.push(proj_view * mat_mesh.global_transform);
+                renderable_count += 1;
+            }
+            jobs.push(RenderJob {
+                camera,
+                instance_batches: instance_batches.into_values().collect(),
+            });
         }
-        RenderJob {
-            instance_batches: instance_batches.into_values().collect(),
-            renderable_count,
-        }
+        RenderJobs { jobs, renderable_count }
     }
 
-    /// Renders a job.
-    pub fn render<'r>(&'r mut self, job: RenderJob<'r>, pass: &mut RenderPass<'r>) {
+    /// Renders a collection of RenderJobs.
+    pub fn render_jobs<'s: 'r, 'r>(&'s mut self, jobs: RenderJobs<'r>, pass: &mut RenderPass<'r>) {
 
-        // Reserve space for all instance data on the GPU buffer
+        // Reserves just enough room to store all instance data across all instance batches.
         reserve_buffer(
             &mut self.instance_buffer,
-            job.renderable_count * size_of::<Mat4>() as u64,
+            jobs.renderable_count * size_of::<Mat4>() as u64,
             &self.device
         );
 
-        // Buffers draw calls for instance batches
+        for job in jobs.jobs {
+            self.render_job(job, pass);
+        }
+    }
+
+    /// Renders a single RenderJob.
+    fn render_job<'s: 'r, 'r>(&'s self, job: RenderJob<'r>, pass: &mut RenderPass<'r>) {
         let mut buffer_offset = 0;
         let mut instance_bytes = Vec::new();
         for instance_batch in job.instance_batches {
 
-            // Appends instance data to vec
+            // Collects instance bytes for this batch
             let transform_bytes: &[u8] = bytemuck::cast_slice(&instance_batch.instance_data);
             instance_bytes.extend_from_slice(transform_bytes);
 
@@ -141,7 +157,7 @@ impl G3D {
             };
             let pipeline = self.pipelines.get(&instance_batch.pipeline_key).unwrap();
 
-            // Draws instances of material / mesh
+            // Draws instances of a single material / mesh
             let instance_range = buffer_offset .. buffer_offset+transform_bytes.len() as u64;
             let num_instances = instance_batch.instance_data.len() as u32;
             pass.set_pipeline(pipeline);
@@ -156,7 +172,9 @@ impl G3D {
     }
 }
 
-/// Propagates transforms in the scene, and separates renderables into flat vecs separated by type.
+/// Creates a "flattened" version of the scene.
+/// All renderables have their transforms propagated.
+/// All renderables are put into separate flat vecs.
 pub(crate) fn flatten_scene<'a>(scene: &'a SceneGraph<Renderable>) -> FlatScene<'a> {
     let mut flat_scene = FlatScene::new();
     let init_transf = Mat4::IDENTITY;
@@ -169,11 +187,19 @@ pub(crate) fn flatten_scene<'a>(scene: &'a SceneGraph<Renderable>) -> FlatScene<
     flat_scene
 }
 
-/// Collection of renderables to be rendered at a later time.
-/// As long as a render job is alive, the required renderable resources are read-locked.
-pub struct RenderJob<'a> {
-    instance_batches: Vec<MatMeshInstances<'a>>,
+// Collection of render jobs to render later.
+pub struct RenderJobs<'a> {
+    jobs: Vec<RenderJob<'a>>,
     renderable_count: u64,
+}
+
+/// Collection of "flattened" renderables to berendered at a later time.
+/// Note: As long as a render job is alive, the required renderable resources are read-locked.
+/// This is necessary in order for the render pass to have stable pointers for its lifetime.
+/// A RenderJob must outlive the render pass that uses it.
+struct RenderJob<'a> {
+    camera: FlatCamera<'a>,
+    instance_batches: Vec<MatMeshInstances<'a>>,
 }
 
 /**
@@ -213,6 +239,10 @@ impl Renderable {
     pub fn empty() -> Self {
         Self::new(RenderableKind::Empty)
     }
+}
+
+impl Trackee for Renderable {
+    type Id = NodeId;
 }
 
 /// Different types of renderables.

@@ -10,13 +10,16 @@ pub enum CameraTarget {
     OffScreen,
 }
 
+/**
+ * Either an orthographic or perspective camera projection.
+ */
 pub enum Projection {
-    Orthographic(OrthographicCamera),
-    Perspective(PerspectiveCamera),
+    Orthographic(OrthographicProjection),
+    Perspective(PerspectiveProjection),
 }
 
 impl Projection {
-    pub fn projection_view(&self) -> Mat4 {
+    pub fn matrix(&self) -> Mat4 {
         match self {
             Self::Orthographic(ortho) => Mat4::orthographic_lh(
                 ortho.left,
@@ -36,7 +39,7 @@ impl Projection {
     }
 }
 
-pub struct OrthographicCamera {
+pub struct OrthographicProjection {
     pub left: f32,
     pub right: f32,
     pub bottom: f32,
@@ -45,7 +48,7 @@ pub struct OrthographicCamera {
     pub far: f32,
 }
 
-pub struct PerspectiveCamera {
+pub struct PerspectiveProjection {
     pub fov: f32,
     pub aspect_ratio: f32,
     pub near: f32,

@@ -1,5 +1,6 @@
 use std::f32::consts::TAU;
-use glam::{Vec3, EulerRot, Quat};
+use glam::{Vec3, Quat};
+use hecs_game::g3d::{Camera, OrthographicProjection};
 use hecs_game::math::Transform;
 use hecs_game::{g3d, App, EnginePlugin, AppBuilder, Color, Handle, GraphicsState, SceneGraph, Stage, RunContext, Game};
 use hecs::World;
@@ -23,6 +24,23 @@ fn plugin(builder: &mut AppBuilder) {
     let (mut world, state, mut scene) = builder
         .game()
         .all::<(&mut World, &GraphicsState, &mut SceneGraph<g3d::Renderable>)>();
+
+    // Spawns camera
+    let camera = Camera {
+        target: g3d::CameraTarget::OnScreen,
+        projection: g3d::Projection::Orthographic(OrthographicProjection {
+            left: -1.0,
+            right: 1.0,
+            bottom: -1.0,
+            top: 1.0,
+            near: 0.0,
+            far: 100.0,
+        }),
+    };
+    let camera = g3d::Renderable::camera(camera);
+    let cam_tracker = scene.insert(camera);
+    let cam_transform = Transform::IDENTITY;
+    world.spawn((cam_tracker, cam_transform));
     
     // Creates material
     let material: g3d::Material = Color::BLUE.into();
@@ -47,40 +65,42 @@ fn plugin(builder: &mut AppBuilder) {
     let red_mesh = g3d::GpuMesh::from_mesh(&red_mesh, &state.device);
     let red_mesh = Handle::new(red_mesh);
     
-    // Spawns entities
+    // Spawns cubes
     let mut rng = SmallRng::seed_from_u64(48);
-    for _ in 0..2 {
-        let mesh_flag: bool = rng.gen();
-        let mesh = match mesh_flag {
-            true => blue_mesh.clone(),
-            false => red_mesh.clone(),
-        };
+    for _ in 0..10 {
+
+        // Creates random transform
         let scale = 0.2 + rng.gen::<f32>() * 0.2;
-        let renderable = g3d::Renderable::mat_mesh(material.clone(), mesh);
         let transform = Transform::IDENTITY
-            .with_xyz(
+            .with_translation(Vec3::new(
                 rng.gen::<f32>() * 2.0 - 1.0,
                 rng.gen::<f32>() * 2.0 - 1.0,
                 1.0,
-            )
-            .with_euler(
-                EulerRot::XYZ,
-                rng.gen::<f32>() * TAU,
-                rng.gen::<f32>() * TAU,
-                rng.gen::<f32>() * TAU,
-            )
-            .with_scale_xyz(scale, scale, scale);
-        let tracker = scene.insert(renderable);
+            ))
+            .with_scale(Vec3::splat(scale));
+
+        // Creates random rotator component
         let rotator = Rotator {
             axis: Vec3::new(
                 rng.gen::<f32>() * 2.0 - 1.0,
                 rng.gen::<f32>() * 2.0 - 1.0,
                 rng.gen::<f32>() * 2.0 - 1.0,
-            ),
+            ).normalize(),
             angle: rng.gen::<f32>() * TAU,
             speed: rng.gen::<f32>() * 0.1,
         };
-        world.spawn((tracker, transform, rotator));
+
+        // Selects random mesh handle
+        let mesh_flag: bool = rng.gen();
+        let mesh = match mesh_flag {
+            true => blue_mesh.clone(),
+            false => red_mesh.clone(),
+        };
+
+        // Spawns cube with above data
+        let renderable = g3d::Renderable::mat_mesh(material.clone(), mesh);
+        let renderable = scene.insert(renderable);
+        world.spawn((renderable, transform, rotator));
     }
 }
 
