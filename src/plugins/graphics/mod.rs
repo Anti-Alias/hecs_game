@@ -17,15 +17,16 @@ pub use scene::*;
 pub use buffer::*;
 use wgpu::{CommandEncoderDescriptor, RenderPassDescriptor, RenderPassColorAttachment, Operations, LoadOp, Color as WgpuColor, StoreOp, RenderPassDepthStencilAttachment};
 use crate::math::Transform;
-use crate::{RunContext, Game, AppBuilder, Stage, Plugin, Tracker};
+use crate::{RunContext, Game, AppBuilder, Stage, Plugin, Tracker, Projection};
+use crate::g3d::RenderableKind;
+
 
 /// Adds primitive [`GraphicsState`].
 /// Adds a 2D and 3D graphics engine.
 pub struct GraphicsPlugin;
 impl Plugin for GraphicsPlugin {
     fn install(&mut self, builder: &mut AppBuilder) {
-        builder
-            .game()
+        builder.game()
             .init(|_| SceneGraph::<g3d::Renderable>::new())
             .init(|game| {
                 let state = game.get::<&GraphicsState>();
@@ -33,18 +34,57 @@ impl Plugin for GraphicsPlugin {
                 let queue = state.queue.clone();
                 g3d::G3D::new(device, queue)
             });
-        builder.add_system(Stage::Render, render_3d, true);        
+        builder
+            .add_system(Stage::RenderSyncPreUpdate, sync_previous_state)
+            .add_system(Stage::RenderSyncPostUpdate, sync_current_state)
+            .add_system(Stage::Render, render_3d);
     }
 }
 
-fn render_3d(game: &mut Game, _ctx: RunContext) {
+fn sync_previous_state(game: &mut Game, _ctx: RunContext) {
+
+    let (mut g3d_scene, mut world) = game.all::<(
+        &mut SceneGraph<g3d::Renderable>,
+        &mut World,
+    )>();
+
+    for (_, (transform, tracker)) in world.query_mut::<(&Transform, &Tracker<g3d::Renderable>)>() {
+        let Some(renderable) = g3d_scene.get_mut(tracker.id()) else { continue };
+        renderable.previous_transform = *transform;
+    }
+
+    for (_, (projection, tracker)) in world.query_mut::<(&Projection, &Tracker<g3d::Renderable>)>() {
+        let Some(renderable) = g3d_scene.get_mut(tracker.id()) else { continue };
+        let RenderableKind::Camera(camera) = &mut renderable.kind else { continue };
+        camera.previous_projection = projection.0;
+    }
+}
+
+fn sync_current_state(game: &mut Game, _ctx: RunContext) {
+
+    let (mut g3d_scene, mut world) = game.all::<(
+        &mut SceneGraph<g3d::Renderable>,
+        &mut World,
+    )>();
+
+    for (_, (transform, tracker)) in world.query_mut::<(&Transform, &Tracker<g3d::Renderable>)>() {
+        let Some(renderable) = g3d_scene.get_mut(tracker.id()) else { continue };
+        renderable.transform = *transform;
+    }
+    for (_, (projection, tracker)) in world.query_mut::<(&Projection, &Tracker<g3d::Renderable>)>() {
+        let Some(renderable) = g3d_scene.get_mut(tracker.id()) else { continue };
+        let RenderableKind::Camera(camera) = &mut renderable.kind else { continue };
+        camera.projection = projection.0;
+    }
+}
+
+fn render_3d(game: &mut Game, ctx: RunContext) {
 
     // Extracts resources for rendering
-    let (graphics_state, mut g3d_scene, mut g3d, mut world) = game.all::<(
+    let (graphics_state, mut g3d_scene, mut g3d) = game.all::<(
         &GraphicsState,
         &mut SceneGraph<g3d::Renderable>,
         &mut g3d::G3D,
-        &mut World,
     )>();
     let surface_tex = match graphics_state.surface().get_current_texture() {
         Ok(surface_tex) => surface_tex,
@@ -57,12 +97,6 @@ fn render_3d(game: &mut Game, _ctx: RunContext) {
     let depth_format = graphics_state.depth_format();
     let depth_view = graphics_state.depth_view();
 
-    // Syncs transforms
-    for (_, (transform, tracker)) in world.query_mut::<(&Transform, &Tracker<g3d::Renderable>)>() {
-        let Some(renderable) = g3d_scene.get_mut(tracker.id()) else { continue };
-        renderable.transform = *transform;
-    }
-
     // Removes nodes that are no longer tracked
     g3d_scene.prune_nodes();
 
@@ -70,7 +104,7 @@ fn render_3d(game: &mut Game, _ctx: RunContext) {
     let view = surface_tex.texture.create_view(&Default::default());
     let mut encoder = graphics_state.device.create_command_encoder(&CommandEncoderDescriptor::default());
     {
-        let flat_scene = g3d::flatten_scene(&g3d_scene);
+        let flat_scene = g3d::flatten_scene(&g3d_scene, ctx.partial_ticks());
         let g3d_jobs = g3d.prepare_jobs(flat_scene, texture_format, depth_format);
 
         // Creates render pass

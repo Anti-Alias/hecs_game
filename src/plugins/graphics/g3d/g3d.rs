@@ -4,9 +4,11 @@ use std::sync::Arc;
 use glam::{Mat4, Affine3A};
 use wgpu::{RenderPass, Device, Queue, RenderPipeline, BufferUsages, Buffer, BufferDescriptor, RenderPipelineDescriptor, PipelineLayoutDescriptor, VertexState, PrimitiveState, PrimitiveTopology, FrontFace, PolygonMode, FragmentState, TextureFormat, ColorTargetState, BlendState, ColorWrites, ShaderModuleDescriptor, ShaderSource, VertexBufferLayout, VertexStepMode, VertexAttribute, VertexFormat, DepthStencilState, CompareFunction, StencilState, DepthBiasState};
 use derive_more::From;
-use crate::math::Transform;
+use crate::math::{Transform, Frustum, Volume};
 use crate::{Handle, Slot, SceneGraph, HandleId, reserve_buffer, ShaderPreprocessor, Trackee, NodeId};
 use crate::g3d::{GpuMaterial, GpuMesh, MeshVariant, MaterialVariant, Camera};
+
+use super::CameraTarget;
 
 const INSTANCE_SLOT: u32 = 0;
 const VERTEX_SLOT: u32 = 1;
@@ -77,11 +79,29 @@ impl G3D {
 
         // Collects N RenderJobs for N cameras.
         for flat_cam in flat_scene.flat_cams {
-            let proj = flat_cam.camera.projection;
+            let mut instance_batches: HashMap<InstanceKey, MatMeshInstances> = HashMap::new();
+            let proj = flat_cam.projection;
             let view = flat_cam.global_transform.inverse();
             let proj_view = proj * view;
-            let mut instance_batches: HashMap<InstanceKey, MatMeshInstances> = HashMap::new();
+            let frustum = Frustum::from(proj_view);
             for flat_mat_mesh in &flat_scene.flat_mat_meshes {
+
+                // Skips mat mesh if it has a bounding volume and it not in the frustum.
+                match flat_mat_mesh.volume {
+                    Some(Volume::Sphere(sphere)) => {
+                        let global_sphere = sphere.transform(flat_mat_mesh.global_transform);
+                        if !frustum.contains_sphere(global_sphere) {
+                            continue;
+                        }
+                    },
+                    Some(Volume::AABB(aabb)) => {
+                        let global_aabb = aabb.transform(flat_mat_mesh.global_transform);
+                        if !frustum.contains_aabb(global_aabb) {
+                            continue;
+                        }
+                    },
+                    None => {}
+                }
 
                 // Extracts material and mesh from renderable. Skips if not loaded.
                 let MatMesh(material_handle, mesh_handle) = flat_mat_mesh.mat_mesh;
@@ -174,16 +194,37 @@ impl G3D {
 /// Creates a "flattened" version of the scene.
 /// All renderables have their transforms propagated.
 /// All renderables are put into separate flat vecs.
-pub(crate) fn flatten_scene<'a>(scene: &'a SceneGraph<Renderable>) -> FlatScene<'a> {
+pub(crate) fn flatten_scene<'a>(scene: &'a SceneGraph<Renderable>, t: f32) -> FlatScene<'a> {
     let mut flat_scene = FlatScene::new();
     let init_transf = Mat4::IDENTITY;
     scene.propagate(init_transf, |parent_transf, renderable| {
-        let local_transform = Affine3A::from(renderable.transform);
-        let global_transform = parent_transf * local_transform;
-        flat_scene.add(renderable, global_transform);
+        let local_transform = renderable.previous_transform.lerp(renderable.transform, t);
+        let local_affine = Affine3A::from(local_transform);
+        let global_transform = parent_transf * local_affine;
+        match &renderable.kind {
+            RenderableKind::MatMesh(mat_mesh) => flat_scene.flat_mat_meshes.push(FlatMatMesh {
+                mat_mesh,
+                global_transform,
+                volume: renderable.volume,
+            }),
+            RenderableKind::Camera(camera) => flat_scene.flat_cams.push(FlatCamera {
+                global_transform,
+                target: &camera.target,
+                projection: lerp_mats(camera.previous_projection, camera.projection, t),
+            }),
+            RenderableKind::Empty => {},
+        }
         global_transform
     });
     flat_scene
+}
+
+fn lerp_mats(a: Mat4, b: Mat4, t: f32) -> Mat4 {
+    let col0 = a.col(0).lerp(b.col(0), t);
+    let col1 = a.col(1).lerp(b.col(1), t);
+    let col2 = a.col(2).lerp(b.col(2), t);
+    let col3 = a.col(3).lerp(b.col(3), t);
+    Mat4::from_cols(col0, col1, col2, col3)
 }
 
 // Collection of render jobs to render later.
@@ -206,36 +247,78 @@ struct RenderJob<'a> {
 pub struct Renderable {
     pub kind: RenderableKind,
     pub transform: Transform,
+    pub previous_transform: Transform,
+    pub volume: Option<Volume>,
 }
 
 impl Renderable {
     
-    pub fn new(kind: RenderableKind) -> Self {
+    /**
+     * Creates an empty renderable.
+     */
+    pub fn new() -> Self {
         Self {
-            kind,
+            kind: RenderableKind::Empty,
             transform: Transform::IDENTITY,
+            previous_transform: Transform::IDENTITY,
+            volume: None,
         }
-    }
-
-    /**
-     * Creates a [`MatMesh`] renderable.
-     */
-    pub fn mat_mesh(material: Handle<GpuMaterial>, mesh: Handle<GpuMesh>) -> Self {
-        Self::new(RenderableKind::MatMesh(MatMesh(material, mesh)))
-    }
-
-    /**
-     * Creates a [`Camera`] renderable.
-     */
-    pub fn camera(camera: Camera) -> Self {
-        Self::new(RenderableKind::Camera(camera))
     }
 
     /**
      * Creates an empty renderable.
      */
     pub fn empty() -> Self {
-        Self::new(RenderableKind::Empty)
+        Self::new()
+    }
+
+    /**
+     * Creates a [`MatMesh`] renderable.
+     */
+    pub fn mat_mesh(material: Handle<GpuMaterial>, mesh: Handle<GpuMesh>) -> Self {
+        Self {
+            kind: RenderableKind::MatMesh(MatMesh(material, mesh)),
+            transform: Transform::IDENTITY,
+            previous_transform: Transform::IDENTITY,
+            volume: None,
+        }
+    }
+
+    /**
+     * Creates a [`Camera`] renderable.
+     */
+    pub fn camera() -> Self {
+        Self {
+            kind: RenderableKind::Camera(Camera::default()),
+            transform: Transform::IDENTITY,
+            previous_transform: Transform::IDENTITY,
+            volume: None,
+        }
+    }
+
+    pub fn with_kind(mut self, kind: RenderableKind) -> Self {
+        self.kind = kind;
+        self
+    }
+
+    pub fn as_mat_mesh(mut self, material: Handle<GpuMaterial>, mesh: Handle<GpuMesh>) -> Self {
+        self.kind = RenderableKind::MatMesh(MatMesh(material, mesh));
+        self
+    }
+
+    pub fn as_camera(mut self) -> Self {
+        self.kind = RenderableKind::Camera(Camera::default());
+        self
+    }
+
+    pub fn as_empty(mut self) -> Self {
+        self.kind = RenderableKind::Empty;
+        self
+    }
+
+    pub fn with_volume(mut self, volume: Volume) -> Self {
+        self.volume = Some(volume);
+        self
     }
 }
 
@@ -263,11 +346,13 @@ pub struct MatMesh(Handle<GpuMaterial>, Handle<GpuMesh>);
 pub struct FlatMatMesh<'a> {
     mat_mesh: &'a MatMesh,
     global_transform: Mat4,
+    volume: Option<Volume>,
 }
 
 /// Camera with its transform propagated.
 pub struct FlatCamera<'a> {
-    camera: &'a Camera,
+    target: &'a CameraTarget,
+    projection: Mat4,
     global_transform: Mat4,
 }
 
@@ -369,20 +454,6 @@ impl<'a> FlatScene<'a> {
         Self {
             flat_mat_meshes: Vec::new(),
             flat_cams: Vec::new(),
-        }
-    }
-
-    fn add(&mut self, renderable: &'a Renderable, global_transform: Mat4) {
-        match &renderable.kind {
-            RenderableKind::MatMesh(mat_mesh) => self.flat_mat_meshes.push(FlatMatMesh {
-                mat_mesh,
-                global_transform,
-            }),
-            RenderableKind::Camera(camera) => self.flat_cams.push(FlatCamera {
-                camera,
-                global_transform,
-            }),
-            RenderableKind::Empty => {},
         }
     }
 }

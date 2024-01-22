@@ -13,6 +13,6 @@ impl Plugin for ClientPlugin {
             .plugin(EcsPlugin)
             .plugin(AssetPlugin)
             .plugin(GraphicsPlugin)
-            .tick_duration(Duration::from_secs_f64(1.0/60.0));        
+            .tick_duration(Duration::from_secs_f64(1.0/20.0));
     }
 }

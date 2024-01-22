@@ -4,7 +4,7 @@ use winit::event::{WindowEvent, Event, ElementState};
 use winit::event_loop::{EventLoop, EventLoopWindowTarget};
 use winit::keyboard::PhysicalKey;
 use winit::window::{WindowBuilder, Window};
-use crate::{App, ExternalRequest, GraphicsState, AppBuilder, AppRunner, Plugin, Keyboard};
+use crate::{App, RunnerRequest, GraphicsState, AppBuilder, AppRunner, Plugin, Keyboard};
 
 /// Opens a window and injects a [`GraphicsState`] for use in a graphics engine.
 /// Adds a runner that is synced with the framerate.
@@ -142,7 +142,7 @@ fn run_game_logic<'a>(
     // Runs logic and handles outgoing requests
     for request in app.run_frame(delta) {
         match request {
-            ExternalRequest::Quit => target.exit(),
+            RunnerRequest::Quit => target.exit(),
         }
     }
 }

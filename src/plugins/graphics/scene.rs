@@ -40,6 +40,15 @@ impl<R: Trackee> SceneGraph<R> {
             .values()
             .map(|node| &node.value)
     }
+
+    /**
+     * Iterator over all objects in the scene in no particular order.
+     */
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut R> {
+        self.nodes
+            .values_mut()
+            .map(|node| &mut node.value)
+    }
   
     /**
      * Inserts a root object and returns a tracker.

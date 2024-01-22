@@ -25,21 +25,21 @@ impl Keyboard {
     /**
      * True if a button is pressed.
     */
-    pub fn is_pressed(&mut self, key: KeyCode) -> bool {
+    pub fn is_pressed(&self, key: KeyCode) -> bool {
         self.keys.is_pressed(key)
     }
 
     /**
      * True if a button is pressed, but wasn't in the previous tick.
     */
-    pub fn is_just_pressed(&mut self, key: KeyCode) -> bool {
+    pub fn is_just_pressed(&self, key: KeyCode) -> bool {
         self.keys.is_just_pressed(key)
     }
 
     /**
      * True if a button is not pressed, but wasn in the previous tick.
     */
-    pub fn is_just_released(&mut self, key: KeyCode) -> bool {
+    pub fn is_just_released(&self, key: KeyCode) -> bool {
         self.keys.is_just_released(key)
     }
 
@@ -102,21 +102,21 @@ where
     /**
      * True if a button is pressed.
     */
-    pub fn is_pressed(&mut self, button: B) -> bool {
+    pub fn is_pressed(&self, button: B) -> bool {
         self.current_state.contains(&button)
     }
 
     /**
      * True if a button is pressed, but wasn't in the previous tick.
     */
-    pub fn is_just_pressed(&mut self, button: B) -> bool {
+    pub fn is_just_pressed(&self, button: B) -> bool {
         self.current_state.contains(&button) && !self.previous_state.contains(&button)
     }
 
     /**
      * True if a button is not pressed, but wasn in the previous tick.
     */
-    pub fn is_just_released(&mut self, button: B) -> bool {
+    pub fn is_just_released(&self, button: B) -> bool {
         !self.current_state.contains(&button) && self.previous_state.contains(&button)
     }
 

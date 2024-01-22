@@ -1,35 +1,5 @@
 use glam::{Vec3, Quat, Affine3A, Mat4, EulerRot};
 
-/**
- * A 3D infinite plane.
- */
-pub struct Plane {
-    pub normal: Vec3,
-    pub distance: f32,
-}
-
-/**
- * 3D frustum, consisting of 6 planes.
- * Useful for culling objects offscreen during rendering.
- */
-pub struct Frustum {
-    pub left: Plane,
-    pub right: Plane,
-    pub bottom: Plane,
-    pub top: Plane,
-    pub near: Plane,
-    pub far: Plane,
-}
-
-impl From<Mat4> for Frustum {
-    fn from(_proj_view: Mat4) -> Self {
-        // let row_0 = proj_view.row(0);
-        // let row_1 = proj_view.row(1);
-        // let row_2 = proj_view.row(2);
-        // let row_3 = proj_view.row(3);
-        todo!()
-    }
-}
 
 /**
  * The 3D transformation of an object, which includes its translation (position) rotation and scale.
@@ -42,6 +12,7 @@ pub struct Transform {
 }
 
 impl Transform {
+    
     pub const IDENTITY: Self = Self {
         translation: Vec3::new(0.0, 0.0, 0.0),
         rotation: Quat::IDENTITY,
@@ -76,6 +47,14 @@ impl Transform {
     pub fn with_euler(mut self, rot: EulerRot, a: f32, b: f32, c: f32) -> Self {
         self.rotation = Quat::from_euler(rot, a, b, c);
         self
+    }
+
+    pub fn lerp(self, other: Transform, s: f32) -> Transform {
+        Transform {
+            translation: self.translation.lerp(other.translation, s),
+            rotation: self.rotation.lerp(other.rotation, s),
+            scale: self.scale.lerp(other.scale, s),
+        }
     }
 }
 

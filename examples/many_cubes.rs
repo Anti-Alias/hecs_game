@@ -1,11 +1,11 @@
 use std::f32::consts::TAU;
 use glam::{Vec3, Quat};
-use hecs_game::g3d::Camera;
-use hecs_game::math::Transform;
-use hecs_game::{g3d, App, ClientPlugin, AppBuilder, Color, Handle, GraphicsState, SceneGraph, Stage, RunContext, Game};
+use hecs_game::math::{Transform, Volume};
+use hecs_game::{g3d, App, ClientPlugin, AppBuilder, Color, Handle, GraphicsState, SceneGraph, Stage, RunContext, Game, Projection, Keyboard};
 use hecs::World;
 use rand::{SeedableRng, Rng};
 use rand::rngs::SmallRng;
+use winit::keyboard::KeyCode;
 
 fn main() {
     env_logger::init();
@@ -18,20 +18,22 @@ fn main() {
 
 fn plugin(builder: &mut AppBuilder) {
 
-    builder.add_system(Stage::Update, rotate_cubes, true);
+    builder
+        .add_system(Stage::Update, rotate_cubes)
+        .add_system(Stage::Update, control_flycam);
 
     // Extracts domains
-    let (mut world, state, mut scene) = builder
-        .game()
-        .all::<(&mut World, &GraphicsState, &mut SceneGraph<g3d::Renderable>)>();
+    let (mut world, state, mut scene) = builder.game().all::<(
+        &mut World,
+        &GraphicsState,
+        &mut SceneGraph<g3d::Renderable>
+    )>();
 
     // Spawns camera
-    //let camera = Camera::perspective(80.0, state.aspect_ratio(), 0.1, 1000.0);
-    let camera = Camera::orthographic(-1.0, 1.0, -1.0, 1.0, 0.0, 100.0);
-    let camera = g3d::Renderable::camera(camera);
-    let cam_tracker = scene.insert(camera);
-    let cam_transform = Transform::IDENTITY;
-    world.spawn((cam_tracker, cam_transform));
+    let cam_tracker = scene.insert(g3d::Renderable::camera());
+    let cam_transform = Transform::default().with_xyz(0.0, 0.0, 1.0);
+    let cam_projection = Projection::perspective(90.0, 1.0, 0.1, 1000.0);
+    world.spawn((cam_tracker, cam_transform, cam_projection, Flycam::default()));
     
     // Creates material
     let material: g3d::Material = Color::BLUE.into();
@@ -81,7 +83,7 @@ fn plugin(builder: &mut AppBuilder) {
             speed: rng.gen::<f32>() * 0.1,
         };
 
-        // Selects random mesh handle
+        // Selects random mesh
         let mesh_flag: bool = rng.gen();
         let mesh = match mesh_flag {
             true => blue_mesh.clone(),
@@ -89,7 +91,9 @@ fn plugin(builder: &mut AppBuilder) {
         };
 
         // Spawns cube with above data
-        let renderable = g3d::Renderable::mat_mesh(material.clone(), mesh);
+        let renderable = g3d::Renderable::new()
+            .as_mat_mesh(material.clone(), mesh)
+            .with_volume(Volume::aabb(Vec3::ZERO, Vec3::splat(0.5)));
         let renderable = scene.insert(renderable);
         world.spawn((renderable, transform, rotator));
     }
@@ -103,9 +107,48 @@ fn rotate_cubes(game: &mut Game, _ctx: RunContext) {
     }
 }
 
+fn control_flycam(game: &mut Game, _ctx: RunContext) {
+
+    let mut world = game.get::<&mut World>();
+    let keyboard = game.get::<&Keyboard>();
+    
+    for (_, (transform, flycam)) in world.query_mut::<(&mut Transform, &Flycam)>() {
+        if keyboard.is_pressed(KeyCode::KeyA) {
+            transform.translation.x -= flycam.speed;
+        }
+        if keyboard.is_pressed(KeyCode::KeyD) {
+            transform.translation.x += flycam.speed;
+        }
+        if keyboard.is_pressed(KeyCode::KeyW) {
+            transform.translation.z -= flycam.speed;
+        }
+        if keyboard.is_pressed(KeyCode::KeyS) {
+            transform.translation.z += flycam.speed;
+        }
+        if keyboard.is_pressed(KeyCode::Space) {
+            transform.translation.y += flycam.speed;
+        }
+        if keyboard.is_pressed(KeyCode::ShiftLeft) {
+            transform.translation.y -= flycam.speed;
+        }
+    }
+}
 
 struct Rotator {
     axis: Vec3,
     angle: f32,
     speed: f32,
+}
+
+
+struct Flycam {
+    pub speed: f32
+}
+
+impl Default for Flycam {
+    fn default() -> Self {
+        Self {
+            speed: 0.1,
+        }
+    }
 }

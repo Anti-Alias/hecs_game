@@ -19,7 +19,7 @@ pub struct App {
     enabled_systems: HashMap<Stage, VecSet<System>>,    // Subset of systems that are enabled.
     commands: VecDeque<Box<dyn Command>>,
     app_requests: VecDeque<AppRequest>,
-    external_requests: VecDeque<ExternalRequest>,
+    external_requests: VecDeque<RunnerRequest>,
 }
 
 impl App {
@@ -50,20 +50,33 @@ impl App {
      * If enough time has accumulated, each per-tick [`Stage`]s as well.
      * Good for client applications.
      */
-    pub fn run_frame(&mut self, delta: Duration) -> vec_deque::Iter<'_, ExternalRequest> {
-        log::trace!("----- TICK {} -----", self.tick);
+    pub fn run_frame(&mut self, delta: Duration) -> vec_deque::Iter<'_, RunnerRequest> {
+        
+        log::trace!("----- FRAME: {}, DELTA: {}ms -----", self.tick, delta.as_millis());
         self.tick_accum += delta;
         self.external_requests.clear();
-        self.run_stage(Stage::Input, delta);
+        let is_tick = self.tick_accum >= self.tick_duration || self.tick == 1;
+        self.run_stage(Stage::Input, delta, 1.0);
+
+        if is_tick {
+            self.run_stage(Stage::RenderSyncPreUpdate, self.tick_duration, 1.0);
+        }
+
         while self.tick_accum >= self.tick_duration {
-            self.run_stage(Stage::PreUpdate, self.tick_duration);
-            self.run_stage(Stage::Update, self.tick_duration);
-            self.run_stage(Stage::UpdatePhysics, self.tick_duration);
-            self.run_stage(Stage::PostUpdate, self.tick_duration);
-            self.run_stage(Stage::Cleanup, self.tick_duration);
+            log::trace!("--- TICK ---");
+            self.run_stage(Stage::PreUpdate, self.tick_duration, 1.0);
+            self.run_stage(Stage::Update, self.tick_duration, 1.0);
+            self.run_stage(Stage::UpdatePhysics, self.tick_duration, 1.0);
+            self.run_stage(Stage::PostUpdate, self.tick_duration, 1.0);
+            self.run_stage(Stage::Cleanup, self.tick_duration, 1.0);
             self.tick_accum -= self.tick_duration;
         }
-        self.run_stage(Stage::Render, delta);
+        if is_tick {
+            self.run_stage(Stage::RenderSyncPostUpdate, self.tick_duration, 1.0);
+        }
+
+        let partial_ticks = self.tick_accum.as_secs_f32() / self.tick_duration.as_secs_f32();
+        self.run_stage(Stage::Render, delta, partial_ticks);
         self.tick += 1;
         return self.external_requests.iter()
     }
@@ -72,14 +85,14 @@ impl App {
      * Runs all per-frame [`Stage`]s and per-tick [`Stage`]s.
      * Good for server applications.
      */
-    pub fn run_tick(&mut self) -> vec_deque::Iter<'_, ExternalRequest> {
+    pub fn run_tick(&mut self) -> vec_deque::Iter<'_, RunnerRequest> {
         self.run_frame(self.tick_duration)
     }
 
     /**
      * Runs all [`System`]s within a [`Stage`], then executes enqueued tasks.
      */
-    fn run_stage(&mut self, stage: Stage, delta: Duration) {
+    fn run_stage(&mut self, stage: Stage, delta: Duration, partial_ticks: f32) {
 
         // Runs systems for stage specified.
         if let Some(systems) = self.enabled_systems.get_mut(&stage) {
@@ -90,6 +103,7 @@ impl App {
                     app_requests: &mut self.app_requests,
                     external_requests: &mut self.external_requests,
                     delta,
+                    partial_ticks,
                 };
                 system(&mut self.game, ctx);
             }
@@ -104,6 +118,7 @@ impl App {
                     app_requests: &mut self.app_requests,
                     external_requests: &mut self.external_requests,
                     delta,
+                    partial_ticks,
                 };
                 let finished = script.script.run(&mut self.game, ctx);
                 !finished
@@ -113,10 +128,10 @@ impl App {
         // Handles app requests emitted by systems and scripts.
         while let Some(app_request) = self.app_requests.pop_front() {
             match app_request {
-                AppRequest::EnableSystem(system)         => self.enable_system(system),
-                AppRequest::DisableSystem(system)        => self.disable_system(system),
-                AppRequest::StartScript { id, stage, script }  => self.run_script(id, stage, script),
-                AppRequest::StopScript(id)                   => self.stop_script(id),
+                AppRequest::EnableSystem(system)                => self.enable_system(system),
+                AppRequest::DisableSystem(system)               => self.disable_system(system),
+                AppRequest::StartScript { id, stage, script }   => self.run_script(id, stage, script),
+                AppRequest::StopScript(id)                      => self.stop_script(id),
             }
         }
 
@@ -186,7 +201,13 @@ impl AppBuilder {
     pub fn game(&mut self) -> &mut Game { &mut self.app.game }
 
     /// Adds a system to the stage specified.
-    pub fn add_system(&mut self, stage: Stage, system: System, enabled: bool) -> &mut Self {
+    pub fn add_system(&mut self, stage: Stage, system: System) -> &mut Self {
+        self.add_system_enabled(stage, system, true);
+        self
+    }
+
+    /// Adds a system to the stage specified.
+    pub fn add_system_enabled(&mut self, stage: Stage, system: System, enabled: bool) -> &mut Self {
         if self.app.systems.contains_key(&system) {
             panic!("Duplicate system {system:?}");
         }
@@ -245,8 +266,9 @@ pub struct RunContext<'a> {
     script_seq: &'a mut u64,
     commands: &'a mut VecDeque<Box<dyn Command>>,
     app_requests: &'a mut VecDeque<AppRequest>,
-    external_requests: &'a mut VecDeque<ExternalRequest>,
+    external_requests: &'a mut VecDeque<RunnerRequest>,
     delta: Duration,
+    partial_ticks: f32,
 }
 
 impl<'a> RunContext<'a> {
@@ -254,7 +276,13 @@ impl<'a> RunContext<'a> {
     /**
      * Time since the last frame or tick, depending on the [`Stage`].
      */
-    pub fn delta(&self) -> Duration { self.delta }
+    pub fn delta(&self) -> Duration {
+        self.delta
+    }
+
+    pub fn partial_ticks(&self) -> f32 {
+        self.partial_ticks
+    }
 
     /**
      * Requests that the following [`Command`] be executed at the end of the current [`Stage`](crate::Stage).
@@ -299,7 +327,7 @@ impl<'a> RunContext<'a> {
      * Requests that the [`Game`] quit.
      */
     pub fn quit(&mut self) {
-        self.external_requests.push_back(ExternalRequest::Quit);
+        self.external_requests.push_back(RunnerRequest::Quit);
     }
 }
 
@@ -318,6 +346,8 @@ pub enum Stage {
     /// Reads input devices (mouse, controllers etc).
     /// Stores those inputs into domain(s) for future reading.
     Input,
+    /// Syncs previous graphical state with current game state.
+    RenderSyncPreUpdate,
     /// Per tick.
     /// Decision-making stage.
     /// Maps inputs to "decisions".
@@ -334,6 +364,8 @@ pub enum Stage {
     /// Runs reaction-code based on the outcomes of Upate and UpdatePhysics.
     /// IE: Hitbox / hurtbox.
     PostUpdate,
+    /// Syncs current graphical state with current game state.
+    RenderSyncPostUpdate,
     /// Per frame.
     /// Updates animations and renders.
     Render,
@@ -374,6 +406,6 @@ pub(crate) enum AppRequest {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub enum ExternalRequest {
+pub enum RunnerRequest {
     Quit,
 }
