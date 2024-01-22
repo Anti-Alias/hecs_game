@@ -24,6 +24,10 @@ impl Sphere {
         radius: 1.0
     };
 
+    pub fn new(center: Vec3, radius: f32) -> Self {
+        Self { center, radius }
+    }
+
     pub fn transform(self, mat: Mat4) -> Self {
         let right = mat.col(0).xyz();
         let up = mat.col(1).xyz();
@@ -67,6 +71,12 @@ impl Default for Sphere {
 pub struct AABB {
     pub center: Vec3,
     pub extents: Vec3,
+}
+
+impl AABB {
+    pub fn new(center: Vec3, extents: Vec3) -> Self {
+        Self { center, extents }
+    }
 }
 
 impl Default for AABB {
@@ -115,13 +125,6 @@ impl Volume {
     }
     pub fn aabb(center: Vec3, extents: Vec3) -> Self {
         Self::AABB(AABB { center, extents })
-    }
-
-    pub fn transform(self, mat: Mat4) -> Self {
-        match self {
-            Volume::Sphere(sphere) => Self::Sphere(sphere.transform(mat)),
-            Volume::AABB(aabb) => Self::AABB(aabb.transform(mat)),
-        }
     }
 }
 
@@ -212,15 +215,6 @@ impl Frustum {
         -self.top.projection_interval(aabb) < self.top.signed_distance(aabb.center) &&
         -self.near.projection_interval(aabb) < self.near.signed_distance(aabb.center) &&
         -self.far.projection_interval(aabb) < self.far.signed_distance(aabb.center)
-    }
-
-    /// Checks if volume is completely, or partially inside the frustum.
-    /// False if edge of volume sits precisely on the plane.
-    pub fn contains_volume(&self, volume: Volume) -> bool {
-        match volume {
-            Volume::Sphere(sphere) => self.contains_sphere(sphere),
-            Volume::AABB(aabb) => self.contains_aabb(aabb),
-        }
     }
 }
 

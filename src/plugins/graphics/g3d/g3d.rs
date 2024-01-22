@@ -1,14 +1,12 @@
 use std::collections::HashMap;
 use std::mem::size_of;
 use std::sync::Arc;
-use glam::{Mat4, Affine3A};
+use glam::{Mat4, Affine3A, Vec3};
 use wgpu::{RenderPass, Device, Queue, RenderPipeline, BufferUsages, Buffer, BufferDescriptor, RenderPipelineDescriptor, PipelineLayoutDescriptor, VertexState, PrimitiveState, PrimitiveTopology, FrontFace, PolygonMode, FragmentState, TextureFormat, ColorTargetState, BlendState, ColorWrites, ShaderModuleDescriptor, ShaderSource, VertexBufferLayout, VertexStepMode, VertexAttribute, VertexFormat, DepthStencilState, CompareFunction, StencilState, DepthBiasState};
 use derive_more::From;
-use crate::math::{Transform, Frustum, Volume};
+use crate::math::{Transform, Frustum, Volume, AABB, Sphere};
 use crate::{Handle, Slot, SceneGraph, HandleId, reserve_buffer, ShaderPreprocessor, Trackee, NodeId};
-use crate::g3d::{GpuMaterial, GpuMesh, MeshVariant, MaterialVariant, Camera};
-
-use super::CameraTarget;
+use crate::g3d::{GpuMaterial, GpuMesh, MeshVariant, MaterialVariant, Camera, CameraTarget};
 
 const INSTANCE_SLOT: u32 = 0;
 const VERTEX_SLOT: u32 = 1;
@@ -209,7 +207,7 @@ pub(crate) fn flatten_scene<'a>(scene: &'a SceneGraph<Renderable>, t: f32) -> Fl
             }),
             RenderableKind::Camera(camera) => flat_scene.flat_cams.push(FlatCamera {
                 global_transform,
-                target: &camera.target,
+                _target: &camera.target,
                 projection: lerp_mats(camera.previous_projection, camera.projection, t),
             }),
             RenderableKind::Empty => {},
@@ -252,24 +250,17 @@ pub struct Renderable {
 }
 
 impl Renderable {
-    
+
     /**
      * Creates an empty renderable.
      */
-    pub fn new() -> Self {
+    pub fn empty() -> Self {
         Self {
             kind: RenderableKind::Empty,
             transform: Transform::IDENTITY,
             previous_transform: Transform::IDENTITY,
             volume: None,
         }
-    }
-
-    /**
-     * Creates an empty renderable.
-     */
-    pub fn empty() -> Self {
-        Self::new()
     }
 
     /**
@@ -301,23 +292,33 @@ impl Renderable {
         self
     }
 
-    pub fn as_mat_mesh(mut self, material: Handle<GpuMaterial>, mesh: Handle<GpuMesh>) -> Self {
+    pub fn with_mat_mesh(mut self, material: Handle<GpuMaterial>, mesh: Handle<GpuMesh>) -> Self {
         self.kind = RenderableKind::MatMesh(MatMesh(material, mesh));
         self
     }
 
-    pub fn as_camera(mut self) -> Self {
+    pub fn with_camera(mut self) -> Self {
         self.kind = RenderableKind::Camera(Camera::default());
         self
     }
 
-    pub fn as_empty(mut self) -> Self {
+    pub fn with_empty(mut self) -> Self {
         self.kind = RenderableKind::Empty;
         self
     }
 
     pub fn with_volume(mut self, volume: Volume) -> Self {
         self.volume = Some(volume);
+        self
+    }
+
+    pub fn with_aabb_volume(mut self, center: Vec3, extents: Vec3) -> Self {
+        self.volume = Some(Volume::AABB(AABB::new(center, extents)));
+        self
+    }
+
+    pub fn with_sphere_volume(mut self, center: Vec3, radius: f32) -> Self {
+        self.volume = Some(Volume::Sphere(Sphere::new(center, radius)));
         self
     }
 }
@@ -351,7 +352,7 @@ pub struct FlatMatMesh<'a> {
 
 /// Camera with its transform propagated.
 pub struct FlatCamera<'a> {
-    target: &'a CameraTarget,
+    _target: &'a CameraTarget,
     projection: Mat4,
     global_transform: Mat4,
 }

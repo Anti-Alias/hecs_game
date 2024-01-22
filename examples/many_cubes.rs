@@ -1,6 +1,6 @@
 use std::f32::consts::TAU;
 use glam::{Vec3, Quat};
-use hecs_game::math::{Transform, Volume};
+use hecs_game::math::Transform;
 use hecs_game::{g3d, App, ClientPlugin, AppBuilder, Color, Handle, GraphicsState, SceneGraph, Stage, RunContext, Game, Projection, Keyboard};
 use hecs::World;
 use rand::{SeedableRng, Rng};
@@ -84,16 +84,15 @@ fn plugin(builder: &mut AppBuilder) {
         };
 
         // Selects random mesh
-        let mesh_flag: bool = rng.gen();
-        let mesh = match mesh_flag {
+        let mesh = match rng.gen::<bool>() {
             true => blue_mesh.clone(),
             false => red_mesh.clone(),
         };
 
         // Spawns cube with above data
-        let renderable = g3d::Renderable::new()
-            .as_mat_mesh(material.clone(), mesh)
-            .with_volume(Volume::aabb(Vec3::ZERO, Vec3::splat(0.5)));
+        let renderable = g3d::Renderable::empty()
+            .with_mat_mesh(material.clone(), mesh)
+            .with_aabb_volume(Vec3::ZERO, Vec3::splat(0.5));
         let renderable = scene.insert(renderable);
         world.spawn((renderable, transform, rotator));
     }
