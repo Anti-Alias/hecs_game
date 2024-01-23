@@ -3,9 +3,6 @@ use std::collections::{VecDeque, HashMap};
 use derive_more::*;
 use crate::{Game, RunContext};
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Hash, Ord, PartialOrd)]
-pub struct ScriptId(pub(crate) u64);
-
 /**
  * A series of [`Instruction`]s to run one after another.
  */
@@ -65,11 +62,6 @@ impl Script {
             }
         }
     }
-}
-
-pub(crate) struct ScriptWithId {
-    pub script: Script,
-    pub id: ScriptId,
 }
 
 impl<I: Instruction> From<I> for Script {

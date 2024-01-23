@@ -4,8 +4,8 @@ use std::sync::Arc;
 use glam::{Mat4, Affine3A, Vec3};
 use wgpu::{RenderPass, Device, Queue, RenderPipeline, BufferUsages, Buffer, BufferDescriptor, RenderPipelineDescriptor, PipelineLayoutDescriptor, VertexState, PrimitiveState, PrimitiveTopology, FrontFace, PolygonMode, FragmentState, TextureFormat, ColorTargetState, BlendState, ColorWrites, ShaderModuleDescriptor, ShaderSource, VertexBufferLayout, VertexStepMode, VertexAttribute, VertexFormat, DepthStencilState, CompareFunction, StencilState, DepthBiasState};
 use derive_more::From;
-use crate::math::{Transform, Frustum, Volume, AABB, Sphere};
 use crate::{Handle, Slot, SceneGraph, HandleId, reserve_buffer, ShaderPreprocessor, Trackee, NodeId};
+use crate::math::{Transform, Frustum, Volume, AABB, Sphere};
 use crate::g3d::{GpuMaterial, GpuMesh, MeshVariant, MaterialVariant, Camera, CameraTarget};
 
 const INSTANCE_SLOT: u32 = 0;

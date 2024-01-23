@@ -1,7 +1,7 @@
 use std::f32::consts::TAU;
 use glam::{Vec3, Quat};
 use hecs_game::math::Transform;
-use hecs_game::{g3d, App, ClientPlugin, AppBuilder, Color, Handle, GraphicsState, SceneGraph, Stage, RunContext, Game, Projection, Keyboard};
+use hecs_game::{g3d, App, ClientPlugin, AppBuilder, Color, Handle, GraphicsState, SceneGraph, Stage, RunContext, Game, Projection, Keyboard, StartEvent};
 use hecs::World;
 use rand::{SeedableRng, Rng};
 use rand::rngs::SmallRng;
@@ -19,11 +19,16 @@ fn main() {
 fn plugin(builder: &mut AppBuilder) {
 
     builder
-        .add_system(Stage::Update, rotate_cubes)
-        .add_system(Stage::Update, control_flycam);
+        .system(Stage::Update, rotate_cubes)
+        .system(Stage::Update, control_flycam)
+        .event_handler(handle_start);
 
+}
+
+fn handle_start(game: &mut Game, _event: &StartEvent) {
+    
     // Extracts domains
-    let (mut world, state, mut scene) = builder.game().all::<(
+    let (mut world, state, mut scene) = game.all::<(
         &mut World,
         &GraphicsState,
         &mut SceneGraph<g3d::Renderable>

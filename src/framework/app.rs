@@ -2,8 +2,8 @@ use std::collections::{HashMap, VecDeque, vec_deque};
 use std::time::Duration;
 use log::warn;
 use vecmap::VecSet;
-use crate::{Game, Script, ScriptWithId, ScriptId};
-
+use crate::{Event, EventBus, EventHandler, Game, Script, StartEvent};
+    
 /**
  * Adds logic to a [`Game`] by executing [`System`]s across it.
  * This happens when invoking run_tick() and run_frame().
@@ -13,9 +13,9 @@ pub struct App {
     tick: u64,                                          // Current tick.
     tick_accum: Duration,                               // Time accumulated for current tick.
     tick_duration: Duration,                            // Length of time for a single game tick.
-    scripts: HashMap<Stage, Vec<ScriptWithId>>,         // Scripts.
-    script_seq: u64,
     systems: HashMap<System, SystemMeta>,               // Systems that manipulate the state of the Game.
+    scripts: HashMap<Stage, Vec<Script>>,               // Scripts.
+    event_bus: EventBus,                                // Place to fire events, and attach event handlers.
     enabled_systems: HashMap<Stage, VecSet<System>>,    // Subset of systems that are enabled.
     commands: VecDeque<Box<dyn Command>>,
     app_requests: VecDeque<AppRequest>,
@@ -31,9 +31,9 @@ impl App {
                 tick: 1,
                 tick_accum: Duration::ZERO,
                 tick_duration: Duration::from_secs_f64(1.0/60.0),
-                scripts: HashMap::new(),
-                script_seq: 0,
                 systems: HashMap::new(),
+                scripts: HashMap::new(),
+                event_bus: EventBus::new(),
                 enabled_systems: HashMap::new(),
                 commands: VecDeque::new(),
                 app_requests: VecDeque::new(),
@@ -64,12 +64,16 @@ impl App {
 
         while self.tick_accum >= self.tick_duration {
             log::trace!("--- TICK ---");
+            if self.tick == 1 {
+                self.event_bus.queue_event(StartEvent);
+            }
             self.run_stage(Stage::PreUpdate, self.tick_duration, 1.0);
             self.run_stage(Stage::Update, self.tick_duration, 1.0);
             self.run_stage(Stage::UpdatePhysics, self.tick_duration, 1.0);
             self.run_stage(Stage::PostUpdate, self.tick_duration, 1.0);
             self.run_stage(Stage::Cleanup, self.tick_duration, 1.0);
             self.tick_accum -= self.tick_duration;
+            self.tick += 1;
         }
         if is_tick {
             self.run_stage(Stage::RenderSyncPostUpdate, self.tick_duration, 1.0);
@@ -77,7 +81,6 @@ impl App {
 
         let partial_ticks = self.tick_accum.as_secs_f32() / self.tick_duration.as_secs_f32();
         self.run_stage(Stage::Render, delta, partial_ticks);
-        self.tick += 1;
         return self.external_requests.iter()
     }
 
@@ -98,10 +101,10 @@ impl App {
         if let Some(systems) = self.enabled_systems.get_mut(&stage) {
             for system in systems.iter().copied() {
                 let ctx = RunContext {
-                    script_seq: &mut self.script_seq,
                     commands: &mut self.commands,
                     app_requests: &mut self.app_requests,
                     external_requests: &mut self.external_requests,
+                    event_bus: &mut self.event_bus,
                     delta,
                     partial_ticks,
                 };
@@ -113,14 +116,14 @@ impl App {
         if let Some(scripts) = self.scripts.get_mut(&stage) {
             scripts.retain_mut(|script | {
                 let ctx = RunContext {
-                    script_seq: &mut self.script_seq,
                     commands: &mut self.commands,
                     app_requests: &mut self.app_requests,
                     external_requests: &mut self.external_requests,
+                    event_bus: &mut self.event_bus,
                     delta,
                     partial_ticks,
                 };
-                let finished = script.script.run(&mut self.game, ctx);
+                let finished = script.run(&mut self.game, ctx);
                 !finished
             });
         }
@@ -128,10 +131,9 @@ impl App {
         // Handles app requests emitted by systems and scripts.
         while let Some(app_request) = self.app_requests.pop_front() {
             match app_request {
-                AppRequest::EnableSystem(system)                => self.enable_system(system),
-                AppRequest::DisableSystem(system)               => self.disable_system(system),
-                AppRequest::StartScript { id, stage, script }   => self.run_script(id, stage, script),
-                AppRequest::StopScript(id)                      => self.stop_script(id),
+                AppRequest::EnableSystem(system)            => self.enable_system(system),
+                AppRequest::DisableSystem(system)           => self.disable_system(system),
+                AppRequest::StartScript { stage, script }   => self.run_script(stage, script),
             }
         }
 
@@ -139,6 +141,9 @@ impl App {
         while let Some(mut command) = self.commands.pop_front() {
             command.run(&mut self.game);
         }
+
+        // Runs event bus
+        self.event_bus.run_events(&mut self.game);
     }
 
     fn enable_system(&mut self, system: System) {
@@ -169,21 +174,11 @@ impl App {
         }
     }
 
-    fn run_script(&mut self, id: ScriptId, stage: Stage, script: Script) {
+    fn run_script(&mut self, stage: Stage, script: Script) {
         self.scripts
             .entry(stage)
             .or_default()
-            .push(ScriptWithId { script, id });
-    }
-
-    fn stop_script(&mut self, script_id: ScriptId) {
-        for scripts in self.scripts.values_mut() {
-            let Some(position) = scripts
-                .iter()
-                .position(|script| script.id == script_id) else { continue };
-            scripts.remove(position);
-            return;
-        }
+            .push(script);
     }
 }
 
@@ -201,13 +196,13 @@ impl AppBuilder {
     pub fn game(&mut self) -> &mut Game { &mut self.app.game }
 
     /// Adds a system to the stage specified.
-    pub fn add_system(&mut self, stage: Stage, system: System) -> &mut Self {
-        self.add_system_enabled(stage, system, true);
+    pub fn system(&mut self, stage: Stage, system: System) -> &mut Self {
+        self.system_enabled(stage, system, true);
         self
     }
 
     /// Adds a system to the stage specified.
-    pub fn add_system_enabled(&mut self, stage: Stage, system: System, enabled: bool) -> &mut Self {
+    pub fn system_enabled(&mut self, stage: Stage, system: System, enabled: bool) -> &mut Self {
         if self.app.systems.contains_key(&system) {
             panic!("Duplicate system {system:?}");
         }
@@ -219,6 +214,11 @@ impl AppBuilder {
                 .or_default()
                 .insert(system);
         }
+        self
+    }
+
+    pub fn event_handler<E: Event>(&mut self, handler: EventHandler<E>) -> &mut Self {
+        self.app.event_bus.add_handler(handler);
         self
     }
 
@@ -263,10 +263,10 @@ where F: FnMut(&mut AppBuilder)
 }
 
 pub struct RunContext<'a> {
-    script_seq: &'a mut u64,
     commands: &'a mut VecDeque<Box<dyn Command>>,
     app_requests: &'a mut VecDeque<AppRequest>,
     external_requests: &'a mut VecDeque<RunnerRequest>,
+    event_bus: &'a mut EventBus,
     delta: Duration,
     partial_ticks: f32,
 }
@@ -294,19 +294,9 @@ impl<'a> RunContext<'a> {
     /**
      * Requests that a [`Script`] be run over during the [`Stage`] specified.
      */
-    pub fn start_script(&mut self, stage: Stage, script: impl Into<Script>) -> ScriptId {
-        let id = ScriptId(*self.script_seq);
-        *self.script_seq += 1;
+    pub fn start_script(&mut self, stage: Stage, script: impl Into<Script>) {
         let script = script.into();
-        self.app_requests.push_back(AppRequest::StartScript { id, stage, script });
-        id
-    }
-
-    /**
-     * Requests that a [`Script`] be stopped.
-     */
-    pub fn stop_script(&mut self, id: ScriptId) {
-        self.app_requests.push_back(AppRequest::StopScript(id));
+        self.app_requests.push_back(AppRequest::StartScript { stage, script });
     }
 
     /**
@@ -328,6 +318,13 @@ impl<'a> RunContext<'a> {
      */
     pub fn quit(&mut self) {
         self.external_requests.push_back(RunnerRequest::Quit);
+    }
+
+    /**
+     * Queues an event to be fired at the desired stage.
+     */
+    pub fn fire<E: Event>(&mut self, event: E) {
+        self.event_bus.queue_event(event);
     }
 }
 
@@ -398,11 +395,9 @@ pub(crate) enum AppRequest {
     EnableSystem(System),
     DisableSystem(System),
     StartScript {
-        id: ScriptId,
         stage: Stage,
         script: Script,
     },
-    StopScript(ScriptId),
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]

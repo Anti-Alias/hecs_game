@@ -35,9 +35,9 @@ impl Plugin for GraphicsPlugin {
                 g3d::G3D::new(device, queue)
             });
         builder
-            .add_system(Stage::RenderSyncPreUpdate, sync_previous_state)
-            .add_system(Stage::RenderSyncPostUpdate, sync_current_state)
-            .add_system(Stage::Render, render_3d);
+            .system(Stage::RenderSyncPreUpdate, sync_previous_state)
+            .system(Stage::RenderSyncPostUpdate, sync_current_state)
+            .system(Stage::Render, render_3d);
     }
 }
 
