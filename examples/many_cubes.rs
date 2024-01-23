@@ -17,11 +17,12 @@ fn main() {
 }
 
 fn plugin(builder: &mut AppBuilder) {
-
     builder
         .system(Stage::Update, rotate_cubes)
         .system(Stage::Update, control_flycam)
-        .event_handler(handle_start);
+        .event_handler(handle_start)
+        .tick_rate(60.0);
+
 
 }
 
@@ -85,7 +86,7 @@ fn handle_start(game: &mut Game, _event: &StartEvent) {
                 rng.gen::<f32>() * 2.0 - 1.0,
             ).normalize(),
             angle: rng.gen::<f32>() * TAU,
-            speed: rng.gen::<f32>() * 0.1,
+            speed: rng.gen::<f32>(),
         };
 
         // Selects random mesh
@@ -103,37 +104,38 @@ fn handle_start(game: &mut Game, _event: &StartEvent) {
     }
 }
 
-fn rotate_cubes(game: &mut Game, _ctx: RunContext) {
+fn rotate_cubes(game: &mut Game, ctx: RunContext) {
     let mut world = game.get::<&mut World>();
     for (_, (transform, rotator)) in world.query_mut::<(&mut Transform, &mut Rotator)>() {
         transform.rotation = Quat::from_axis_angle(rotator.axis, rotator.angle);
-        rotator.angle += rotator.speed;
+        rotator.angle += rotator.speed * ctx.delta_secs();
     }
 }
 
-fn control_flycam(game: &mut Game, _ctx: RunContext) {
+fn control_flycam(game: &mut Game, ctx: RunContext) {
 
     let mut world = game.get::<&mut World>();
     let keyboard = game.get::<&Keyboard>();
+    let delta = ctx.delta_secs();
     
     for (_, (transform, flycam)) in world.query_mut::<(&mut Transform, &Flycam)>() {
         if keyboard.is_pressed(KeyCode::KeyA) {
-            transform.translation.x -= flycam.speed;
+            transform.translation.x -= flycam.speed * delta;
         }
         if keyboard.is_pressed(KeyCode::KeyD) {
-            transform.translation.x += flycam.speed;
+            transform.translation.x += flycam.speed * delta;
         }
         if keyboard.is_pressed(KeyCode::KeyW) {
-            transform.translation.z -= flycam.speed;
+            transform.translation.z -= flycam.speed * delta;
         }
         if keyboard.is_pressed(KeyCode::KeyS) {
-            transform.translation.z += flycam.speed;
+            transform.translation.z += flycam.speed * delta;
         }
         if keyboard.is_pressed(KeyCode::Space) {
-            transform.translation.y += flycam.speed;
+            transform.translation.y += flycam.speed * delta;
         }
         if keyboard.is_pressed(KeyCode::ShiftLeft) {
-            transform.translation.y -= flycam.speed;
+            transform.translation.y -= flycam.speed * delta;
         }
     }
 }
@@ -152,7 +154,7 @@ struct Flycam {
 impl Default for Flycam {
     fn default() -> Self {
         Self {
-            speed: 0.1,
+            speed: 2.0,
         }
     }
 }

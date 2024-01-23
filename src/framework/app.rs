@@ -227,8 +227,14 @@ impl AppBuilder {
         self
     }
 
-    pub fn tick_duration(&mut self, tick_duration: Duration) {
+    pub fn tick_duration(&mut self, tick_duration: Duration) -> &mut Self {
         self.app.tick_duration = tick_duration;
+        self
+    }
+
+    pub fn tick_rate(&mut self, tick_rate: f32) -> &mut Self {
+        self.app.tick_duration = Duration::from_secs_f32(1.0 / tick_rate);
+        self
     }
 
     pub fn runner(&mut self, runner: impl AppRunner + 'static) {
@@ -278,6 +284,13 @@ impl<'a> RunContext<'a> {
      */
     pub fn delta(&self) -> Duration {
         self.delta
+    }
+
+    /**
+     * Time since the last frame or tick, depending on the [`Stage`].
+     */
+    pub fn delta_secs(&self) -> f32 {
+        self.delta.as_secs_f32()
     }
 
     pub fn partial_ticks(&self) -> f32 {
