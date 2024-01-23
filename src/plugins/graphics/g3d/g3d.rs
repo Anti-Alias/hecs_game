@@ -1,10 +1,10 @@
-use std::collections::HashMap;
 use std::mem::size_of;
 use std::sync::Arc;
 use glam::{Mat4, Affine3A, Vec3};
+use tracing::instrument;
 use wgpu::{RenderPass, Device, Queue, RenderPipeline, BufferUsages, Buffer, BufferDescriptor, RenderPipelineDescriptor, PipelineLayoutDescriptor, VertexState, PrimitiveState, PrimitiveTopology, FrontFace, PolygonMode, FragmentState, TextureFormat, ColorTargetState, BlendState, ColorWrites, ShaderModuleDescriptor, ShaderSource, VertexBufferLayout, VertexStepMode, VertexAttribute, VertexFormat, DepthStencilState, CompareFunction, StencilState, DepthBiasState};
 use derive_more::From;
-use crate::{Handle, Slot, SceneGraph, HandleId, reserve_buffer, ShaderPreprocessor, Trackee, NodeId};
+use crate::{Handle, Slot, SceneGraph, HandleId, reserve_buffer, ShaderPreprocessor, Trackee, NodeId, HashMap};
 use crate::math::{Transform, Frustum, Volume, AABB, Sphere};
 use crate::g3d::{GpuMaterial, GpuMesh, MeshVariant, MaterialVariant, Camera, CameraTarget};
 
@@ -52,7 +52,7 @@ impl G3D {
     /// New graphics engine with an empty scene graph.
     pub fn new(device: Arc<Device>, queue: Arc<Queue>) -> Self {
         Self {
-            pipelines: HashMap::new(),
+            pipelines: HashMap::default(),
             device: device.clone(),
             queue,
             instance_buffer: device.create_buffer(&BufferDescriptor {
@@ -65,6 +65,7 @@ impl G3D {
     }
 
     /// Generates render jobs for every camera in the scene graph.
+    #[instrument(skip_all)]
     pub fn prepare_jobs<'s>(
         &mut self,
         flat_scene: FlatScene<'s>,
@@ -77,7 +78,7 @@ impl G3D {
 
         // Collects N RenderJobs for N cameras.
         for flat_cam in flat_scene.flat_cams {
-            let mut instance_batches: HashMap<InstanceKey, MatMeshInstances> = HashMap::new();
+            let mut instance_batches: HashMap<InstanceKey, MatMeshInstances> = HashMap::default();
             let proj = flat_cam.projection;
             let view = flat_cam.global_transform.inverse();
             let proj_view = proj * view;
@@ -141,6 +142,7 @@ impl G3D {
     }
 
     /// Renders a collection of RenderJobs.
+    #[instrument(skip_all)]
     pub fn render_jobs<'s: 'r, 'r>(&'s mut self, jobs: RenderJobs<'r>, pass: &mut RenderPass<'r>) {
 
         // Reserves just enough room to store all instance data across all instance batches.
@@ -192,8 +194,8 @@ impl G3D {
 /// Creates a "flattened" version of the scene.
 /// All renderables have their transforms propagated.
 /// All renderables are put into separate flat vecs.
-pub(crate) fn flatten_scene<'a>(scene: &'a SceneGraph<Renderable>, t: f32) -> FlatScene<'a> {
-    let mut flat_scene = FlatScene::new();
+#[instrument(skip_all)]
+pub(crate) fn flatten_scene<'a>(scene: &'a SceneGraph<Renderable>, flat_scene: &mut FlatScene<'a>, t: f32) {
     let init_transf = Mat4::IDENTITY;
     scene.propagate(init_transf, |parent_transf, renderable| {
         let local_transform = renderable.previous_transform.lerp(renderable.transform, t);
@@ -214,7 +216,6 @@ pub(crate) fn flatten_scene<'a>(scene: &'a SceneGraph<Renderable>, t: f32) -> Fl
         }
         global_transform
     });
-    flat_scene
 }
 
 fn lerp_mats(a: Mat4, b: Mat4, t: f32) -> Mat4 {
@@ -451,10 +452,10 @@ pub(crate) struct FlatScene<'a> {
 
 impl<'a> FlatScene<'a> {
 
-    fn new() -> Self {
+    pub fn with_capacities(mat_meshes: usize, cams: usize) -> Self {
         Self {
-            flat_mat_meshes: Vec::new(),
-            flat_cams: Vec::new(),
+            flat_mat_meshes: Vec::with_capacity(mat_meshes),
+            flat_cams: Vec::with_capacity(cams),
         }
     }
 }

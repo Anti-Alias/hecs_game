@@ -1,7 +1,6 @@
-use std::collections::HashSet;
 use std::hash::Hash;
 use winit::keyboard::KeyCode;
-use crate::{Plugin, AppBuilder};
+use crate::{Plugin, AppBuilder, HashSet};
 
 pub struct InputPlugin;
 impl Plugin for InputPlugin {
@@ -80,8 +79,8 @@ where
 {
     pub fn new() -> Self {
         Self {
-            previous_state: HashSet::new(),
-            current_state: HashSet::new()
+            previous_state: HashSet::default(),
+            current_state: HashSet::default()
         }
     }
 

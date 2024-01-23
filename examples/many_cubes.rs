@@ -8,7 +8,15 @@ use rand::rngs::SmallRng;
 use winit::keyboard::KeyCode;
 
 fn main() {
-    env_logger::init();
+    
+    use tracing_chrome::ChromeLayerBuilder;
+    use tracing_subscriber::prelude::*;
+
+    let (chrome_layer, _guard) = ChromeLayerBuilder::new()
+        .include_args(true)
+        .build();
+    tracing_subscriber::registry().with(chrome_layer).init();
+
     let mut builder = App::builder();
     builder
         .plugin(ClientPlugin)
@@ -21,7 +29,7 @@ fn plugin(builder: &mut AppBuilder) {
         .system(Stage::Update, rotate_cubes)
         .system(Stage::Update, control_flycam)
         .event_handler(handle_start)
-        .tick_rate(60.0);
+        .tick_rate(20.0);
 }
 
 fn handle_start(game: &mut Game, _event: &StartEvent) {
@@ -64,7 +72,7 @@ fn handle_start(game: &mut Game, _event: &StartEvent) {
     
     // Spawns cubes
     let mut rng = SmallRng::seed_from_u64(48);
-    for _ in 0..5000 {
+    for _ in 0..100_000 {
 
         // Creates random transform
         let scale = 0.2 + rng.gen::<f32>() * 0.2;

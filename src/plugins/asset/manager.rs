@@ -1,7 +1,6 @@
-use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use derive_more::{Error, Display};
-use crate::{Handle, Protocol, PathParts, Asset, Dependencies, DynLoader, Loader, DynHandle};
+use crate::{Handle, Protocol, PathParts, Asset, Dependencies, DynLoader, Loader, DynHandle, HashMap};
 
 /**
  * Central location for loading [`Asset`]s located in files.
@@ -20,9 +19,9 @@ impl AssetManager {
         AssetManagerBuilder(Store {
             base_path: "assets".to_string(),
             default_protocol: None,
-            protocols: HashMap::new(),
-            handles: HashMap::new(),
-            extensions_to_loaders: HashMap::new(),
+            protocols: HashMap::default(),
+            handles: HashMap::default(),
+            extensions_to_loaders: HashMap::default(),
             loaders: Vec::new(),
         })
     }

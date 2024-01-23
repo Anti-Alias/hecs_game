@@ -2,8 +2,8 @@ use std::sync::mpsc::{Sender, Receiver};
 use slotmap::Key;
 
 /// Object to be tracked.
-pub trait Trackee {
-    type Id: Key;
+pub trait Trackee: Send + Sync + 'static {
+    type Id: Key + Send + Sync + 'static;
 }
 
 /// A "tracking" handle to an object in some domain (Trackee).

@@ -1,7 +1,7 @@
 use std::any::Any;
-use std::collections::{VecDeque, HashMap};
+use std::collections::VecDeque;
 use derive_more::*;
-use crate::{Game, RunContext};
+use crate::{Game, RunContext, HashMap};
 
 /**
  * A series of [`Instruction`]s to run one after another.
@@ -19,7 +19,7 @@ impl Script {
         Self {
             current: None,
             instructions: VecDeque::new(),
-            variables: HashMap::new(),
+            variables: HashMap::default(),
             stopped: false,
         }
     }

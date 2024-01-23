@@ -1,7 +1,7 @@
-use std::collections::HashSet;
 use slotmap::{new_key_type, SlotMap};
 use smallvec::SmallVec;
 use derive_more::*;
+use tracing::instrument;
 use crate::{TrackerSender, Trackee, TrackerReceiver, tracker_channel, Tracker};
 
 /// A hierarchical collection of [`Node`]s with parent/child relationships.
@@ -10,7 +10,7 @@ use crate::{TrackerSender, Trackee, TrackerReceiver, tracker_channel, Tracker};
 /// * `R` - Renderable type.
 ///
 pub struct SceneGraph<R: Trackee> {
-    root_ids: HashSet<R::Id>,
+    root_ids: Vec<R::Id>,
     nodes: SlotMap<R::Id, Node<R>>,
     sender: TrackerSender<R>,
     receiver: TrackerReceiver<R>,
@@ -21,14 +21,14 @@ impl<R: Trackee> SceneGraph<R> {
     pub fn new() -> Self {
         let (sender, receiver) = tracker_channel();
         Self {
-            root_ids: HashSet::new(),
+            root_ids: Vec::default(),
             nodes: SlotMap::default(),
             sender,
             receiver,
         }
     }
 
-    pub fn root_ids(&self) -> &HashSet<R::Id> {
+    pub fn root_ids(&self) -> &[R::Id] {
         &self.root_ids
     }
 
@@ -68,7 +68,7 @@ impl<R: Trackee> SceneGraph<R> {
             children_ids: SmallVec::new(),
         };
         let node_id = self.nodes.insert(node);
-        self.root_ids.insert(node_id);
+        self.root_ids.push(node_id);
         node_id
     }
 
@@ -129,9 +129,8 @@ impl<R: Trackee> SceneGraph<R> {
      * Removes an object recursively.
      */
     pub fn remove(&mut self, node_id: R::Id) -> Option<R> {
-        if !self.root_ids.remove(&node_id) {
-            return None;
-        }
+        let idx = self.root_ids.iter().position(|id| *id == node_id)?;
+        self.root_ids.remove(idx);
         remove(node_id, &mut self.nodes)
     }
 
@@ -158,7 +157,7 @@ impl<R: Trackee> SceneGraph<R> {
             for child_id in &node.children_ids {
                 let child = self.nodes.get_mut(*child_id).unwrap();
                 child.parent_id = None;
-                self.root_ids.insert(node_id);
+                self.root_ids.push(node_id);
             }
         }
 
@@ -175,12 +174,21 @@ impl<R: Trackee> SceneGraph<R> {
     }
 
     /**
+     * The number of [`Node`]s stored.
+     */
+    pub fn len(&self) -> usize {
+        self.nodes.len()
+    }
+
+    /**
      * Removes [`Node`]s that hand their trackers dropped.
      * Descendants are also removed.
     */
+    #[instrument(skip_all)]
     pub fn prune_nodes(&mut self) {
         for node_id in self.receiver.iter() {
-            if !self.root_ids.remove(&node_id) { continue };
+            let Some(idx) = self.root_ids.iter().position(|id| *id == node_id) else { continue };
+            self.root_ids.swap_remove(idx);
             remove(node_id, &mut self.nodes);
         }
     }
@@ -193,9 +201,26 @@ impl<R: Trackee> SceneGraph<R> {
         A: Clone,
         F: FnMut(A, &'a R) -> A
     {
-        for root_id in &self.root_ids {
+        for root_id in self.root_ids() {
             propagate_at(&self.nodes, *root_id, accum.clone(), &mut function);
-        }
+        };
+    }
+}
+
+fn propagate_at<'a, R: Trackee, A, F>(
+    nodes: &'a SlotMap<R::Id, Node<R>>,
+    node_id: R::Id,
+    accum: A,
+    function: &mut F
+)
+where
+    A: Clone,
+    F: FnMut(A, &'a R) -> A
+{
+    let node = unsafe { nodes.get_unchecked(node_id) };
+    let current = function(accum, &node.value);
+    for child_id in &node.children_ids {
+        propagate_at(nodes, *child_id, current.clone(), function);
     }
 }
 
@@ -207,18 +232,6 @@ fn remove<R: Trackee>(node_id: R::Id, nodes: &mut SlotMap<R::Id, Node<R>>) -> Op
     node.parent_id = None;
     node.children_ids.clear();
     Some(node.value)
-}
-
-fn propagate_at<'a, R: Trackee, A, F>(nodes: &'a SlotMap<R::Id, Node<R>>, node_id: R::Id, accum: A, function: &mut F)
-where
-    A: Clone,
-    F: FnMut(A, &'a R) -> A
-{
-    let node = nodes.get(node_id).unwrap();
-    let current = function(accum, &node.value);
-    for child_id in &node.children_ids {
-        propagate_at(nodes, *child_id, current.clone(), function);
-    }
 }
 
 /// Container of a scene graph value, and a reference to its parent and children.

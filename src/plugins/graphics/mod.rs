@@ -15,10 +15,13 @@ pub use color::*;
 pub use shader::*;
 pub use scene::*;
 pub use buffer::*;
-use wgpu::{CommandEncoderDescriptor, RenderPassDescriptor, RenderPassColorAttachment, Operations, LoadOp, Color as WgpuColor, StoreOp, RenderPassDepthStencilAttachment};
+use tracing::instrument;
+use wgpu::{Color as WgpuColor, CommandEncoderDescriptor, LoadOp, Operations, RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPassDescriptor, StoreOp, SurfaceTexture};
 use crate::math::Transform;
 use crate::{RunContext, Game, AppBuilder, Stage, Plugin, Tracker, Projection};
 use crate::g3d::RenderableKind;
+
+use self::g3d::FlatScene;
 
 
 /// Adds primitive [`GraphicsState`].
@@ -37,7 +40,7 @@ impl Plugin for GraphicsPlugin {
         builder
             .system(Stage::RenderSyncPreUpdate, sync_previous_state)
             .system(Stage::RenderSyncPostUpdate, sync_current_state)
-            .system(Stage::Render, render_3d);
+            .system(Stage::Render, render);
     }
 }
 
@@ -78,7 +81,8 @@ fn sync_current_state(game: &mut Game, _ctx: RunContext) {
     }
 }
 
-fn render_3d(game: &mut Game, ctx: RunContext) {
+
+fn render(game: &mut Game, ctx: RunContext) {
 
     // Extracts resources for rendering
     let (graphics_state, mut g3d_scene, mut g3d) = game.all::<(
@@ -93,6 +97,18 @@ fn render_3d(game: &mut Game, ctx: RunContext) {
             return;
         }
     };
+    encode_render(&graphics_state, &mut g3d_scene, &mut g3d, &surface_tex, &ctx);
+    surface_tex.present();
+}
+
+#[instrument(skip_all)]
+fn encode_render(
+    graphics_state: &GraphicsState,
+    g3d_scene: &mut SceneGraph<g3d::Renderable>,
+    g3d: &mut g3d::G3D,
+    surface_tex: &SurfaceTexture,
+    ctx: &RunContext,
+) {
     let texture_format = graphics_state.surface_format();
     let depth_format = graphics_state.depth_format();
     let depth_view = graphics_state.depth_view();
@@ -104,7 +120,8 @@ fn render_3d(game: &mut Game, ctx: RunContext) {
     let view = surface_tex.texture.create_view(&Default::default());
     let mut encoder = graphics_state.device.create_command_encoder(&CommandEncoderDescriptor::default());
     {
-        let flat_scene = g3d::flatten_scene(&g3d_scene, ctx.partial_ticks());
+        let mut flat_scene = FlatScene::with_capacities(g3d_scene.len(), 1);
+        g3d::flatten_scene(&g3d_scene, &mut flat_scene, ctx.partial_ticks());
         let g3d_jobs = g3d.prepare_jobs(flat_scene, texture_format, depth_format);
 
         // Creates render pass
@@ -139,5 +156,4 @@ fn render_3d(game: &mut Game, ctx: RunContext) {
     // Encoded render
     let commands = [encoder.finish()];
     graphics_state.queue.submit(commands);
-    surface_tex.present();
 }

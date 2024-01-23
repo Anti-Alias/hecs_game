@@ -1,6 +1,6 @@
 use std::any::{Any, TypeId};
-use std::collections::{VecDeque, HashMap};
-use crate::Game;
+use std::collections::VecDeque;
+use crate::{Game, HashMap};
 
 /// Event that is fired the first frame the game starts.
 #[derive(Clone)]
@@ -43,7 +43,7 @@ impl EventBus {
 
     pub fn new() -> Self {
         Self {
-            executors: HashMap::new(),
+            executors: HashMap::default(),
         }
     }
     

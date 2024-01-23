@@ -1,8 +1,9 @@
-use std::collections::{HashMap, VecDeque, vec_deque};
+use std::collections::{VecDeque, vec_deque};
 use std::time::Duration;
 use log::warn;
+use tracing::{instrument, span, Level};
 use vecmap::VecSet;
-use crate::{Event, EventBus, EventHandler, Game, Script, StartEvent};
+use crate::{Event, EventBus, EventHandler, Game, Script, StartEvent, HashMap};
     
 /**
  * Adds logic to a [`Game`] by executing [`System`]s across it.
@@ -31,10 +32,10 @@ impl App {
                 tick: 1,
                 tick_accum: Duration::ZERO,
                 tick_duration: Duration::from_secs_f64(1.0/60.0),
-                systems: HashMap::new(),
-                scripts: HashMap::new(),
+                systems: HashMap::default(),
+                scripts: HashMap::default(),
                 event_bus: EventBus::new(),
-                enabled_systems: HashMap::new(),
+                enabled_systems: HashMap::default(),
                 commands: VecDeque::new(),
                 app_requests: VecDeque::new(),
                 external_requests: VecDeque::new(),
@@ -50,51 +51,49 @@ impl App {
      * If enough time has accumulated, each per-tick [`Stage`]s as well.
      * Good for client applications.
      */
+    #[instrument(skip(self))]
     pub fn run_frame(&mut self, delta: Duration) -> vec_deque::Iter<'_, RunnerRequest> {
-        
-        log::trace!("----- FRAME: {}, DELTA: {}ms -----", self.tick, delta.as_millis());
         self.tick_accum += delta;
         self.external_requests.clear();
-        let is_tick = self.tick_accum >= self.tick_duration || self.tick == 1;
         self.run_stage(Stage::Input, delta, 1.0);
+        self.run_tick();
+        self.run_render(delta);
+        return self.external_requests.iter()
+    }
 
+    fn run_tick(&mut self) {
+        let is_tick = self.tick_accum >= self.tick_duration;
+        
         if is_tick {
-            self.run_stage(Stage::RenderSyncPreUpdate, self.tick_duration, 1.0);
-        }
-
-        while self.tick_accum >= self.tick_duration {
-            log::trace!("--- TICK ---");
             if self.tick == 1 {
                 self.event_bus.queue_event(StartEvent);
             }
+            self.run_stage(Stage::RenderSyncPreUpdate, self.tick_duration, 1.0);
+        }
+        while self.tick_accum >= self.tick_duration {
+            log::trace!("--- TICK ---");
             self.run_stage(Stage::PreUpdate, self.tick_duration, 1.0);
             self.run_stage(Stage::Update, self.tick_duration, 1.0);
             self.run_stage(Stage::UpdatePhysics, self.tick_duration, 1.0);
             self.run_stage(Stage::PostUpdate, self.tick_duration, 1.0);
             self.run_stage(Stage::Cleanup, self.tick_duration, 1.0);
             self.tick_accum -= self.tick_duration;
-            self.tick += 1;
+            self.tick += 1; 
         }
         if is_tick {
             self.run_stage(Stage::RenderSyncPostUpdate, self.tick_duration, 1.0);
         }
-
-        let partial_ticks = self.tick_accum.as_secs_f32() / self.tick_duration.as_secs_f32();
-        self.run_stage(Stage::Render, delta, partial_ticks);
-        return self.external_requests.iter()
     }
 
-    /**
-     * Runs all per-frame [`Stage`]s and per-tick [`Stage`]s.
-     * Good for server applications.
-     */
-    pub fn run_tick(&mut self) -> vec_deque::Iter<'_, RunnerRequest> {
-        self.run_frame(self.tick_duration)
+    fn run_render(&mut self, delta: Duration) {
+        let partial_ticks = self.tick_accum.as_secs_f32() / self.tick_duration.as_secs_f32();
+        self.run_stage(Stage::Render, delta, partial_ticks);
     }
 
     /**
      * Runs all [`System`]s within a [`Stage`], then executes enqueued tasks.
      */
+    #[instrument(skip(self))]
     fn run_stage(&mut self, stage: Stage, delta: Duration, partial_ticks: f32) {
 
         // Runs systems for stage specified.
@@ -243,6 +242,7 @@ impl AppBuilder {
 
     /// Finishes building [`App`] and immediately runs it.
     pub fn run(mut self) {
+        span!(Level::TRACE, "run");
         let mut runner = self.runner.take().expect("Runner not configured");
         runner.run(self.app);
     }
