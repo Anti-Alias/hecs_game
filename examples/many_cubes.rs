@@ -22,8 +22,6 @@ fn plugin(builder: &mut AppBuilder) {
         .system(Stage::Update, control_flycam)
         .event_handler(handle_start)
         .tick_rate(60.0);
-
-
 }
 
 fn handle_start(game: &mut Game, _event: &StartEvent) {
@@ -66,7 +64,7 @@ fn handle_start(game: &mut Game, _event: &StartEvent) {
     
     // Spawns cubes
     let mut rng = SmallRng::seed_from_u64(48);
-    for _ in 0..10 {
+    for _ in 0..5000 {
 
         // Creates random transform
         let scale = 0.2 + rng.gen::<f32>() * 0.2;

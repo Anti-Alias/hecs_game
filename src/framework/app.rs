@@ -232,8 +232,8 @@ impl AppBuilder {
         self
     }
 
-    pub fn tick_rate(&mut self, tick_rate: f32) -> &mut Self {
-        self.app.tick_duration = Duration::from_secs_f32(1.0 / tick_rate);
+    pub fn tick_rate(&mut self, tick_rate: f64) -> &mut Self {
+        self.app.tick_duration = Duration::from_secs_f64(1.0 / tick_rate);
         self
     }
 
