@@ -1,6 +1,6 @@
 use std::any::{TypeId, Any};
 use std::cell::{RefCell, Ref, RefMut};
-use crate::HashMap;
+use std::collections::HashMap;
 
 /// Game structure, which acts as a simple container of [`Domain`]s.
 /// Contains no logic on its own.
@@ -12,7 +12,7 @@ impl Game {
 
     pub fn new() -> Self {
         Self {
-            domains: HashMap::default()
+            domains: HashMap::new()
         }
     }
 

@@ -138,7 +138,8 @@ impl G3D {
                 instance_batches: instance_batches.into_values().collect(),
             });
         }
-        RenderJobs { jobs, renderable_count }
+        RenderJobs
+         { jobs, renderable_count }
     }
 
     /// Renders a collection of RenderJobs.
@@ -195,7 +196,8 @@ impl G3D {
 /// All renderables have their transforms propagated.
 /// All renderables are put into separate flat vecs.
 #[instrument(skip_all)]
-pub(crate) fn flatten_scene<'a>(scene: &'a SceneGraph<Renderable>, flat_scene: &mut FlatScene<'a>, t: f32) {
+pub(crate) fn flatten_scene<'a>(scene: &'a SceneGraph<Renderable>, t: f32) -> FlatScene<'a> {
+    let mut flat_scene = FlatScene::with_capacities(scene.len(), 1);
     let init_transf = Mat4::IDENTITY;
     scene.propagate(init_transf, |parent_transf, renderable| {
         let local_transform = renderable.previous_transform.lerp(renderable.transform, t);
@@ -216,6 +218,7 @@ pub(crate) fn flatten_scene<'a>(scene: &'a SceneGraph<Renderable>, flat_scene: &
         }
         global_transform
     });
+    flat_scene
 }
 
 fn lerp_mats(a: Mat4, b: Mat4, t: f32) -> Mat4 {

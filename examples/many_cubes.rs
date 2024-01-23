@@ -8,15 +8,6 @@ use rand::rngs::SmallRng;
 use winit::keyboard::KeyCode;
 
 fn main() {
-    
-    use tracing_chrome::ChromeLayerBuilder;
-    use tracing_subscriber::prelude::*;
-
-    let (chrome_layer, _guard) = ChromeLayerBuilder::new()
-        .include_args(true)
-        .build();
-    tracing_subscriber::registry().with(chrome_layer).init();
-
     let mut builder = App::builder();
     builder
         .plugin(ClientPlugin)

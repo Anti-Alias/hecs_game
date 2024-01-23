@@ -1,7 +1,7 @@
 use std::collections::{VecDeque, vec_deque};
 use std::time::Duration;
 use log::warn;
-use tracing::{instrument, span, Level};
+use tracing::instrument;
 use vecmap::VecSet;
 use crate::{Event, EventBus, EventHandler, Game, Script, StartEvent, HashMap};
     
@@ -242,9 +242,20 @@ impl AppBuilder {
 
     /// Finishes building [`App`] and immediately runs it.
     pub fn run(mut self) {
-        span!(Level::TRACE, "run");
-        let mut runner = self.runner.take().expect("Runner not configured");
-        runner.run(self.app);
+        #[cfg(feature = "profile")]
+        {
+            use tracing_chrome::ChromeLayerBuilder;
+            use tracing_subscriber::prelude::*;
+            let (chrome_layer, _guard) = ChromeLayerBuilder::new().include_args(true).build();
+            tracing_subscriber::registry().with(chrome_layer).init();
+            let mut runner = self.runner.take().expect("Runner not configured");
+            runner.run(self.app);
+        }
+        #[cfg(not(feature = "profile"))]
+        {
+            let mut runner = self.runner.take().expect("Runner not configured");
+            runner.run(self.app);
+        }
     }
 }
 

@@ -19,9 +19,6 @@ use tracing::instrument;
 use wgpu::{Color as WgpuColor, CommandEncoderDescriptor, LoadOp, Operations, RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPassDescriptor, StoreOp, SurfaceTexture};
 use crate::math::Transform;
 use crate::{RunContext, Game, AppBuilder, Stage, Plugin, Tracker, Projection};
-use crate::g3d::RenderableKind;
-
-use self::g3d::FlatScene;
 
 
 /// Adds primitive [`GraphicsState`].
@@ -40,7 +37,7 @@ impl Plugin for GraphicsPlugin {
         builder
             .system(Stage::RenderSyncPreUpdate, sync_previous_state)
             .system(Stage::RenderSyncPostUpdate, sync_current_state)
-            .system(Stage::Render, render);
+            .system(Stage::Render, render_3d);
     }
 }
 
@@ -58,7 +55,7 @@ fn sync_previous_state(game: &mut Game, _ctx: RunContext) {
 
     for (_, (projection, tracker)) in world.query_mut::<(&Projection, &Tracker<g3d::Renderable>)>() {
         let Some(renderable) = g3d_scene.get_mut(tracker.id()) else { continue };
-        let RenderableKind::Camera(camera) = &mut renderable.kind else { continue };
+        let g3d::RenderableKind::Camera(camera) = &mut renderable.kind else { continue };
         camera.previous_projection = projection.0;
     }
 }
@@ -76,15 +73,12 @@ fn sync_current_state(game: &mut Game, _ctx: RunContext) {
     }
     for (_, (projection, tracker)) in world.query_mut::<(&Projection, &Tracker<g3d::Renderable>)>() {
         let Some(renderable) = g3d_scene.get_mut(tracker.id()) else { continue };
-        let RenderableKind::Camera(camera) = &mut renderable.kind else { continue };
+        let g3d::RenderableKind::Camera(camera) = &mut renderable.kind else { continue };
         camera.projection = projection.0;
     }
 }
 
-
-fn render(game: &mut Game, ctx: RunContext) {
-
-    // Extracts resources for rendering
+fn render_3d(game: &mut Game, ctx: RunContext) {
     let (graphics_state, mut g3d_scene, mut g3d) = game.all::<(
         &GraphicsState,
         &mut SceneGraph<g3d::Renderable>,
@@ -97,12 +91,12 @@ fn render(game: &mut Game, ctx: RunContext) {
             return;
         }
     };
-    encode_render(&graphics_state, &mut g3d_scene, &mut g3d, &surface_tex, &ctx);
+    enqueue_render(&graphics_state, &mut g3d_scene, &mut g3d, &surface_tex, &ctx);
     surface_tex.present();
 }
 
 #[instrument(skip_all)]
-fn encode_render(
+fn enqueue_render(
     graphics_state: &GraphicsState,
     g3d_scene: &mut SceneGraph<g3d::Renderable>,
     g3d: &mut g3d::G3D,
@@ -116,12 +110,11 @@ fn encode_render(
     // Removes nodes that are no longer tracked
     g3d_scene.prune_nodes();
 
-    // Renders scene
+    // Traverses scene and encodes commands
     let view = surface_tex.texture.create_view(&Default::default());
     let mut encoder = graphics_state.device.create_command_encoder(&CommandEncoderDescriptor::default());
     {
-        let mut flat_scene = FlatScene::with_capacities(g3d_scene.len(), 1);
-        g3d::flatten_scene(&g3d_scene, &mut flat_scene, ctx.partial_ticks());
+        let flat_scene = g3d::flatten_scene(&g3d_scene, ctx.partial_ticks());
         let g3d_jobs = g3d.prepare_jobs(flat_scene, texture_format, depth_format);
 
         // Creates render pass
@@ -149,11 +142,11 @@ fn encode_render(
             occlusion_query_set: None,
         });
 
-        // Submits rendering jobs to graphics engines
+        // Encodes 3D scene
         g3d.render_jobs(g3d_jobs, &mut pass);
     }
-    
-    // Encoded render
+
+    // Submits render commands
     let commands = [encoder.finish()];
     graphics_state.queue.submit(commands);
 }
