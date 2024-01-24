@@ -2,10 +2,10 @@ use std::time::Duration;
 use crate::{AppBuilder, Plugin, WindowPlugin, GraphicsPlugin, InputPlugin, EcsPlugin, AssetPlugin};
 
 /**
- * Main game-engine plugin.
+ * Main game engine plugin.
  */
-pub struct ClientPlugin;
-impl Plugin for ClientPlugin {
+pub struct EnginePlugin;
+impl Plugin for EnginePlugin {
     fn install(&mut self, builder: &mut AppBuilder) {
         builder
             .plugin(InputPlugin)

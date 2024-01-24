@@ -63,12 +63,8 @@ impl App {
 
     fn run_tick(&mut self) {
         let is_tick = self.tick_accum >= self.tick_duration;
-        
-        if is_tick {
-            if self.tick == 1 {
-                self.event_bus.queue_event(StartEvent);
-            }
-            self.run_stage(Stage::RenderSyncPreUpdate, self.tick_duration, 1.0);
+        if is_tick && self.tick == 1 {
+            self.event_bus.queue_event(StartEvent);
         }
         while self.tick_accum >= self.tick_duration {
             log::trace!("--- TICK ---");
@@ -81,7 +77,7 @@ impl App {
             self.tick += 1; 
         }
         if is_tick {
-            self.run_stage(Stage::RenderSyncPostUpdate, self.tick_duration, 1.0);
+            self.run_stage(Stage::Sync, self.tick_duration, 1.0);
         }
     }
 
@@ -367,8 +363,6 @@ pub enum Stage {
     /// Reads input devices (mouse, controllers etc).
     /// Stores those inputs into domain(s) for future reading.
     Input,
-    /// Syncs previous graphical state with current game state.
-    RenderSyncPreUpdate,
     /// Per tick.
     /// Decision-making stage.
     /// Maps inputs to "decisions".
@@ -386,7 +380,7 @@ pub enum Stage {
     /// IE: Hitbox / hurtbox.
     PostUpdate,
     /// Syncs current graphical state with current game state.
-    RenderSyncPostUpdate,
+    Sync,
     /// Per frame.
     /// Updates animations and renders.
     Render,

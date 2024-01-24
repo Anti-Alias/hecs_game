@@ -1,7 +1,7 @@
 use std::f32::consts::TAU;
 use glam::{Vec3, Quat};
 use hecs_game::math::Transform;
-use hecs_game::{g3d, App, ClientPlugin, AppBuilder, Color, Handle, GraphicsState, SceneGraph, Stage, RunContext, Game, Projection, Keyboard, StartEvent};
+use hecs_game::{g3d, App, AppBuilder, EnginePlugin, Color, Game, GraphicsState, Handle, Keyboard, Projection, RunContext, Scene, Stage, StartEvent, SyncState};
 use hecs::World;
 use rand::{SeedableRng, Rng};
 use rand::rngs::SmallRng;
@@ -10,7 +10,7 @@ use winit::keyboard::KeyCode;
 fn main() {
     let mut builder = App::builder();
     builder
-        .plugin(ClientPlugin)
+        .plugin(EnginePlugin)
         .plugin(plugin);
     builder.run();
 }
@@ -20,7 +20,7 @@ fn plugin(builder: &mut AppBuilder) {
         .system(Stage::Update, rotate_cubes)
         .system(Stage::Update, control_flycam)
         .event_handler(handle_start)
-        .tick_rate(20.0);
+        .tick_rate(60.0);
 }
 
 fn handle_start(game: &mut Game, _event: &StartEvent) {
@@ -29,14 +29,20 @@ fn handle_start(game: &mut Game, _event: &StartEvent) {
     let (mut world, state, mut scene) = game.all::<(
         &mut World,
         &GraphicsState,
-        &mut SceneGraph<g3d::Renderable>
+        &mut Scene<g3d::Renderable>
     )>();
 
     // Spawns camera
     let cam_tracker = scene.insert(g3d::Renderable::camera());
     let cam_transform = Transform::default().with_xyz(0.0, 0.0, 1.0);
     let cam_projection = Projection::perspective(90.0, 1.0, 0.1, 1000.0);
-    world.spawn((cam_tracker, cam_transform, cam_projection, Flycam::default()));
+    world.spawn((
+        cam_tracker,
+        cam_transform,
+        cam_projection,
+        SyncState::default(),
+        Flycam::default()
+    ));
     
     // Creates material
     let material: g3d::Material = Color::BLUE.into();
@@ -63,7 +69,7 @@ fn handle_start(game: &mut Game, _event: &StartEvent) {
     
     // Spawns cubes
     let mut rng = SmallRng::seed_from_u64(48);
-    for _ in 0..100_000 {
+    for _ in 0..10_000 {
 
         // Creates random transform
         let scale = 0.2 + rng.gen::<f32>() * 0.2;
@@ -97,16 +103,25 @@ fn handle_start(game: &mut Game, _event: &StartEvent) {
             .with_mat_mesh(material.clone(), mesh)
             .with_aabb_volume(Vec3::ZERO, Vec3::splat(0.5));
         let renderable = scene.insert(renderable);
-        world.spawn((renderable, transform, rotator));
+        world.spawn((renderable, transform, rotator, SyncState::default()));
     }
 }
 
 fn rotate_cubes(game: &mut Game, ctx: RunContext) {
     let mut world = game.get::<&mut World>();
-    for (_, (transform, rotator)) in world.query_mut::<(&mut Transform, &mut Rotator)>() {
-        transform.rotation = Quat::from_axis_angle(rotator.axis, rotator.angle);
-        rotator.angle += rotator.speed * ctx.delta_secs();
-    }
+    let query = world.query_mut::<(&mut Transform, &mut Rotator)>();
+    let delta = ctx.delta_secs();
+
+    rayon::scope(|s| {
+        for batch in query.into_iter_batched(1024) {
+            s.spawn(|_| {
+                for (_, (transform, rotator)) in batch {
+                    transform.rotation = Quat::from_axis_angle(rotator.axis, rotator.angle);
+                    rotator.angle += rotator.speed * delta;
+                }
+            });
+        }
+    });
 }
 
 fn control_flycam(game: &mut Game, ctx: RunContext) {

@@ -1,30 +1,29 @@
+use std::cell::UnsafeCell;
+
 use slotmap::{new_key_type, SlotMap};
 use smallvec::SmallVec;
 use derive_more::*;
-use tracing::instrument;
-use crate::{TrackerSender, Trackee, TrackerReceiver, tracker_channel, Tracker};
+
+use crate::HasId;
 
 /// A hierarchical collection of [`Node`]s with parent/child relationships.
 /// Useful for representing the graphics of a game, where each [`Node`] contains a renderable object.
 ///
 /// * `R` - Renderable type.
 ///
-pub struct SceneGraph<R: Trackee> {
+pub struct SceneGraph<R: HasId> {
     root_ids: Vec<R::Id>,
-    nodes: SlotMap<R::Id, Node<R>>,
-    sender: TrackerSender<R>,
-    receiver: TrackerReceiver<R>,
+    nodes: SlotMap<R::Id, NodeWrapper<R>>,
 }
 
-impl<R: Trackee> SceneGraph<R> {
+unsafe impl<R: HasId> Sync for SceneGraph<R> {}
+
+impl<R: HasId> SceneGraph<R> {
 
     pub fn new() -> Self {
-        let (sender, receiver) = tracker_channel();
         Self {
             root_ids: Vec::default(),
             nodes: SlotMap::default(),
-            sender,
-            receiver,
         }
     }
 
@@ -38,7 +37,7 @@ impl<R: Trackee> SceneGraph<R> {
     pub fn iter(&self) -> impl Iterator<Item = &R> {
         self.nodes
             .values()
-            .map(|node| &node.value)
+            .map(|node| &node.get().value)
     }
 
     /**
@@ -47,26 +46,18 @@ impl<R: Trackee> SceneGraph<R> {
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut R> {
         self.nodes
             .values_mut()
-            .map(|node| &mut node.value)
-    }
-  
-    /**
-     * Inserts a root object and returns a tracker.
-     */
-    pub fn insert(&mut self, value: R) -> Tracker<R> {
-        let id = self.insert_untracked(value);
-        Tracker::new(id, self.sender.clone())
+            .map(|node| &mut node.get_mut().value)
     }
 
     /**
      * Inserts a root object and returns its id.
      */
-    pub fn insert_untracked(&mut self, value: R) -> R::Id {
-        let node = Node {
+    pub fn insert(&mut self, value: R) -> R::Id {
+        let node = NodeWrapper::new(Node {
             value,
             parent_id: None,
             children_ids: SmallVec::new(),
-        };
+        });
         let node_id = self.nodes.insert(node);
         self.root_ids.push(node_id);
         node_id
@@ -76,14 +67,14 @@ impl<R: Trackee> SceneGraph<R> {
      * Inserts an object as a child of another.
      */
     pub fn insert_child(&mut self, value: R, parent_id: R::Id) -> Result<R::Id, SceneGraphError> {
-        let node = Node {
+        let node = NodeWrapper::new(Node {
             value,
             parent_id: Some(parent_id),
             children_ids: SmallVec::new(),
-        };
+        });
         let node_id = self.nodes.insert(node);
         match self.nodes.get_mut(parent_id) {
-            Some(parent) => parent.children_ids.push(node_id),
+            Some(parent) => parent.get_mut().children_ids.push(node_id),
             None => {
                 self.nodes.remove(node_id);
                 return Err(SceneGraphError::NoSuchNode);
@@ -93,20 +84,12 @@ impl<R: Trackee> SceneGraph<R> {
     }
 
     /**
-     * Inserts an object as a child of another.
-     */
-    pub fn insert_child_tracked(&mut self, value: R, parent_id: R::Id) -> Result<Tracker<R>, SceneGraphError> {
-        let node_id = self.insert_child(value, parent_id)?;
-        Ok(Tracker::new(node_id, self.sender.clone()))
-    }
-
-    /**
      * Gets an object by id.
      */
     pub fn get(&self, node_id: R::Id) -> Option<&R> {
         self.nodes
             .get(node_id)
-            .map(|node| &node.value)
+            .map(|node| &node.get().value)
     }
 
     /**
@@ -115,7 +98,18 @@ impl<R: Trackee> SceneGraph<R> {
     pub fn get_mut(&mut self, node_id: R::Id) -> Option<&mut R> {
         self.nodes
             .get_mut(node_id)
-            .map(|node| &mut node.value)
+            .map(|node| &mut node.get_mut().value)
+    }
+
+    /**
+     * Gets an object by id.
+     */
+    pub unsafe fn get_mut_unsafe(&self, node_id: R::Id) -> Option<&mut R> {
+        self.nodes
+            .get(node_id)
+            .map(|node| unsafe {
+                &mut node.get_mut_unsafe().value
+            })
     }
 
     /**
@@ -128,9 +122,11 @@ impl<R: Trackee> SceneGraph<R> {
     /**
      * Removes an object recursively.
      */
-    pub fn remove(&mut self, node_id: R::Id) -> Option<R> {
-        let idx = self.root_ids.iter().position(|id| *id == node_id)?;
-        self.root_ids.remove(idx);
+    pub fn remove(&mut self, node_id: R::Id) {
+        let idx = self.root_ids.iter().position(|id| *id == node_id);
+        if let Some(idx) = idx {
+            self.root_ids.remove(idx);
+        }
         remove(node_id, &mut self.nodes)
     }
 
@@ -139,31 +135,30 @@ impl<R: Trackee> SceneGraph<R> {
      * Its children, if any, are reparented to the removed node's parent.
      * If the removed node did not have a parent, they become root nodes.
      */
-    pub fn remove_reparent(&mut self, node_id: R::Id) -> Option<R> {
-        let mut node = self.nodes.remove(node_id)?;
+    pub fn remove_reparent(&mut self, node_id: R::Id) {
+        let Some(mut node) = self.nodes.remove(node_id) else { return };
 
         // Children are reparented
-        if let Some(parent_id) = node.parent_id {
+        if let Some(parent_id) = node.get().parent_id {
             let parent = self.nodes.get_mut(parent_id).unwrap();
-            parent.children_ids.extend_from_slice(&node.children_ids);
-            for child_id in &node.children_ids {
+            parent.get_mut().children_ids.extend_from_slice(&node.get().children_ids);
+            for child_id in &node.get().children_ids {
                 let child = self.nodes.get_mut(*child_id).unwrap();
-                child.parent_id = Some(parent_id);
+                child.get_mut().parent_id = Some(parent_id);
             }
         }
 
         // Children become roots
         else {
-            for child_id in &node.children_ids {
+            for child_id in &node.get().children_ids {
                 let child = self.nodes.get_mut(*child_id).unwrap();
-                child.parent_id = None;
+                child.get_mut().parent_id = None;
                 self.root_ids.push(node_id);
             }
         }
 
-        node.parent_id = None;
-        node.children_ids.clear();
-        Some(node.value)
+        node.get_mut().parent_id = None;
+        node.get_mut().children_ids.clear();
     }
 
     /**
@@ -180,19 +175,6 @@ impl<R: Trackee> SceneGraph<R> {
         self.nodes.len()
     }
 
-    /**
-     * Removes [`Node`]s that hand their trackers dropped.
-     * Descendants are also removed.
-    */
-    #[instrument(skip_all)]
-    pub fn prune_nodes(&mut self) {
-        for node_id in self.receiver.iter() {
-            let Some(idx) = self.root_ids.iter().position(|id| *id == node_id) else { continue };
-            self.root_ids.swap_remove(idx);
-            remove(node_id, &mut self.nodes);
-        }
-    }
-
     /// Recursive fold-like operation starting at the root nodes.
     /// Value accumulates from parent to child.
     /// Useful for implementing transform propagation.
@@ -207,8 +189,8 @@ impl<R: Trackee> SceneGraph<R> {
     }
 }
 
-fn propagate_at<'a, R: Trackee, A, F>(
-    nodes: &'a SlotMap<R::Id, Node<R>>,
+fn propagate_at<'a, R: HasId, A, F>(
+    nodes: &'a SlotMap<R::Id, NodeWrapper<R>>,
     node_id: R::Id,
     accum: A,
     function: &mut F
@@ -218,24 +200,44 @@ where
     F: FnMut(A, &'a R) -> A
 {
     let node = unsafe { nodes.get_unchecked(node_id) };
-    let current = function(accum, &node.value);
-    for child_id in &node.children_ids {
+    let current = function(accum, &node.get().value);
+    for child_id in &node.get().children_ids {
         propagate_at(nodes, *child_id, current.clone(), function);
     }
 }
 
-fn remove<R: Trackee>(node_id: R::Id, nodes: &mut SlotMap<R::Id, Node<R>>) -> Option<R> {
-    let mut node = nodes.remove(node_id)?;
-    for child_id in &node.children_ids {
+fn remove<R: HasId>(node_id: R::Id, nodes: &mut SlotMap<R::Id, NodeWrapper<R>>) {
+    let Some(node) = nodes.remove(node_id) else { return };
+    for child_id in &node.get().children_ids {
         remove(*child_id, nodes);
     }
-    node.parent_id = None;
-    node.children_ids.clear();
-    Some(node.value)
+}
+
+
+struct NodeWrapper<R: HasId>(UnsafeCell<Node<R>>);
+impl<R: HasId> NodeWrapper<R> {
+
+    fn new(node: Node<R>) -> Self {
+        Self(UnsafeCell::new(node))
+    }
+
+    fn get(&self) -> &Node<R> {
+        let ptr = self.0.get();
+        unsafe { &*ptr }
+    }
+
+    fn get_mut(&mut self) -> &mut Node<R> {
+        self.0.get_mut()
+    }
+
+    unsafe fn get_mut_unsafe(&self) -> &mut Node<R> {
+        let ptr = self.0.get();
+        &mut *ptr
+    }
 }
 
 /// Container of a scene graph value, and a reference to its parent and children.
-struct Node<R: Trackee> {
+struct Node<R: HasId> {
     value: R,
     parent_id: Option<R::Id>,
     children_ids: SmallVec<[R::Id; 8]>,

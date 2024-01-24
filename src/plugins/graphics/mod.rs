@@ -15,6 +15,7 @@ pub use color::*;
 pub use shader::*;
 pub use scene::*;
 pub use buffer::*;
+
 use tracing::instrument;
 use wgpu::{Color as WgpuColor, CommandEncoderDescriptor, LoadOp, Operations, RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPassDescriptor, StoreOp, SurfaceTexture};
 use crate::math::Transform;
@@ -27,7 +28,7 @@ pub struct GraphicsPlugin;
 impl Plugin for GraphicsPlugin {
     fn install(&mut self, builder: &mut AppBuilder) {
         builder.game()
-            .init(|_| SceneGraph::<g3d::Renderable>::new())
+            .init(|_| Scene::<g3d::Renderable>::new())
             .init(|game| {
                 let state = game.get::<&GraphicsState>();
                 let device = state.device.clone();
@@ -35,53 +36,84 @@ impl Plugin for GraphicsPlugin {
                 g3d::G3D::new(device, queue)
             });
         builder
-            .system(Stage::RenderSyncPreUpdate, sync_previous_state)
-            .system(Stage::RenderSyncPostUpdate, sync_current_state)
+            .system(Stage::Sync, sync_graphics)
             .system(Stage::Render, render_3d);
     }
 }
 
-fn sync_previous_state(game: &mut Game, _ctx: RunContext) {
-
+fn sync_graphics(game: &mut Game, _ctx: RunContext) {
     let (mut g3d_scene, mut world) = game.all::<(
-        &mut SceneGraph<g3d::Renderable>,
+        &mut Scene<g3d::Renderable>,
         &mut World,
     )>();
 
-    for (_, (transform, tracker)) in world.query_mut::<(&Transform, &Tracker<g3d::Renderable>)>() {
-        let Some(renderable) = g3d_scene.get_mut(tracker.id()) else { continue };
-        renderable.previous_transform = *transform;
-    }
+    let g3d_scene = &mut g3d_scene.graph;
+    let world = &mut *world;
+    let query = world.query_mut::<(&Transform, &Tracker<g3d::Renderable>, Option<&SyncState>)>();
 
-    for (_, (projection, tracker)) in world.query_mut::<(&Projection, &Tracker<g3d::Renderable>)>() {
+    rayon::scope(|s| {
+        for batch in query.into_iter_batched(10000) {
+            s.spawn(|_| {
+                for (_, (transform, tracker, state)) in batch {
+                    let renderable = unsafe {
+                        g3d_scene.get_mut_unsafe(tracker.id())
+                    };
+                    let Some(renderable) = renderable else { continue };
+                    match state {
+                        Some(SyncState::Interpolate) => {
+                            renderable.previous_transform = renderable.transform;
+                            renderable.transform = *transform;
+                        },
+                        Some(SyncState::NoInterpolate) => {
+                            renderable.previous_transform = *transform;
+                            renderable.transform = *transform;
+                        },
+                        Some(SyncState::Teleport) => {
+                            renderable.previous_transform = *transform;
+                            renderable.transform = *transform;
+                        },
+                        None => {},
+                    }
+                }
+            });
+        }
+    });
+    
+
+    // Syncs projections
+    let query = world.query_mut::<(&Projection, &Tracker<g3d::Renderable>, Option<&SyncState>)>();
+    for (_, (projection, tracker, state)) in query {
         let Some(renderable) = g3d_scene.get_mut(tracker.id()) else { continue };
         let g3d::RenderableKind::Camera(camera) = &mut renderable.kind else { continue };
-        camera.previous_projection = projection.0;
+        match state {
+            Some(SyncState::Interpolate) => {
+                camera.previous_projection = camera.projection;
+                camera.projection = projection.0;
+            },
+            Some(SyncState::NoInterpolate) => {
+                camera.previous_projection = projection.0;
+                camera.projection = projection.0;
+            },
+            Some(SyncState::Teleport) => {
+                camera.previous_projection = projection.0;
+                camera.projection = projection.0;
+            },
+            None => {},
+        }
     }
-}
 
-fn sync_current_state(game: &mut Game, _ctx: RunContext) {
-
-    let (mut g3d_scene, mut world) = game.all::<(
-        &mut SceneGraph<g3d::Renderable>,
-        &mut World,
-    )>();
-
-    for (_, (transform, tracker)) in world.query_mut::<(&Transform, &Tracker<g3d::Renderable>)>() {
-        let Some(renderable) = g3d_scene.get_mut(tracker.id()) else { continue };
-        renderable.transform = *transform;
-    }
-    for (_, (projection, tracker)) in world.query_mut::<(&Projection, &Tracker<g3d::Renderable>)>() {
-        let Some(renderable) = g3d_scene.get_mut(tracker.id()) else { continue };
-        let g3d::RenderableKind::Camera(camera) = &mut renderable.kind else { continue };
-        camera.projection = projection.0;
+    // Takes objects out of their teleportation state
+    for (_, state) in world.query_mut::<&mut SyncState>() {
+        if *state == SyncState::Teleport {
+            *state = SyncState::Interpolate;
+        }
     }
 }
 
 fn render_3d(game: &mut Game, ctx: RunContext) {
     let (graphics_state, mut g3d_scene, mut g3d) = game.all::<(
         &GraphicsState,
-        &mut SceneGraph<g3d::Renderable>,
+        &mut Scene<g3d::Renderable>,
         &mut g3d::G3D,
     )>();
     let surface_tex = match graphics_state.surface().get_current_texture() {
@@ -98,7 +130,7 @@ fn render_3d(game: &mut Game, ctx: RunContext) {
 #[instrument(skip_all)]
 fn enqueue_render(
     graphics_state: &GraphicsState,
-    g3d_scene: &mut SceneGraph<g3d::Renderable>,
+    g3d_scene: &mut Scene<g3d::Renderable>,
     g3d: &mut g3d::G3D,
     surface_tex: &SurfaceTexture,
     ctx: &RunContext,
@@ -149,4 +181,19 @@ fn enqueue_render(
     // Submits render commands
     let commands = [encoder.finish()];
     graphics_state.queue.submit(commands);
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Default, Debug)]
+pub enum SyncState {
+    /// Graphics will interpolate between previous and current state.
+    /// Small visual latency.
+    /// Good for high refresh-rate monitors.
+    Interpolate,
+    /// Graphics will be shown at current location only.
+    /// Good for consistency, but looks choppy if frame rate is higher than tick rate.
+    NoInterpolate,
+    /// Graphics will not interpolate this tick.
+    /// Moves to Interpolate state after.
+    #[default]
+    Teleport,
 }

@@ -1,11 +1,12 @@
+use std::collections::HashMap;
 use std::mem::size_of;
 use std::sync::Arc;
 use glam::{Mat4, Affine3A, Vec3};
 use tracing::instrument;
-use wgpu::{RenderPass, Device, Queue, RenderPipeline, BufferUsages, Buffer, BufferDescriptor, RenderPipelineDescriptor, PipelineLayoutDescriptor, VertexState, PrimitiveState, PrimitiveTopology, FrontFace, PolygonMode, FragmentState, TextureFormat, ColorTargetState, BlendState, ColorWrites, ShaderModuleDescriptor, ShaderSource, VertexBufferLayout, VertexStepMode, VertexAttribute, VertexFormat, DepthStencilState, CompareFunction, StencilState, DepthBiasState};
 use derive_more::From;
-use crate::{Handle, Slot, SceneGraph, HandleId, reserve_buffer, ShaderPreprocessor, Trackee, NodeId, HashMap};
+use wgpu::{RenderPass, Device, Queue, RenderPipeline, BufferUsages, Buffer, BufferDescriptor, RenderPipelineDescriptor, PipelineLayoutDescriptor, VertexState, PrimitiveState, PrimitiveTopology, FrontFace, PolygonMode, FragmentState, TextureFormat, ColorTargetState, BlendState, ColorWrites, ShaderModuleDescriptor, ShaderSource, VertexBufferLayout, VertexStepMode, VertexAttribute, VertexFormat, DepthStencilState, CompareFunction, StencilState, DepthBiasState};
 use crate::math::{Transform, Frustum, Volume, AABB, Sphere};
+use crate::{reserve_buffer, Handle, HandleId, NodeId, Scene, ShaderPreprocessor, Slot, HasId};
 use crate::g3d::{GpuMaterial, GpuMesh, MeshVariant, MaterialVariant, Camera, CameraTarget};
 
 const INSTANCE_SLOT: u32 = 0;
@@ -118,17 +119,10 @@ impl G3D {
 
                 // Fetches instance batch for material and mesh.
                 // Creates it if it does not exist.
+                let instance_key = InstanceKey { material_id: material_handle.id(), mesh_id: mesh_handle.id() };
                 let instance_batch = instance_batches
-                    .entry(InstanceKey {
-                        material_id: material_handle.id(),
-                        mesh_id: mesh_handle.id(),
-                    })
-                    .or_insert_with(|| MatMeshInstances {
-                        material_slot,
-                        mesh_slot,
-                        pipeline_key,
-                        instance_data: Vec::new(),
-                    });
+                    .entry(instance_key)
+                    .or_insert_with(|| MatMeshInstances::new(material_slot, mesh_slot, pipeline_key));
                 
                 // Inserts instance data into that batch.
                 instance_batch.instance_data.push(proj_view * flat_mat_mesh.global_transform);
@@ -138,8 +132,7 @@ impl G3D {
                 instance_batches: instance_batches.into_values().collect(),
             });
         }
-        RenderJobs
-         { jobs, renderable_count }
+        RenderJobs { jobs, renderable_count }
     }
 
     /// Renders a collection of RenderJobs.
@@ -196,10 +189,10 @@ impl G3D {
 /// All renderables have their transforms propagated.
 /// All renderables are put into separate flat vecs.
 #[instrument(skip_all)]
-pub(crate) fn flatten_scene<'a>(scene: &'a SceneGraph<Renderable>, t: f32) -> FlatScene<'a> {
+pub(crate) fn flatten_scene<'a>(scene: &'a Scene<Renderable>, t: f32) -> FlatScene<'a> {
     let mut flat_scene = FlatScene::with_capacities(scene.len(), 1);
     let init_transf = Mat4::IDENTITY;
-    scene.propagate(init_transf, |parent_transf, renderable| {
+    scene.graph.propagate(init_transf, |parent_transf, renderable| {
         let local_transform = renderable.previous_transform.lerp(renderable.transform, t);
         let local_affine = Affine3A::from(local_transform);
         let global_transform = parent_transf * local_affine;
@@ -327,7 +320,7 @@ impl Renderable {
     }
 }
 
-impl Trackee for Renderable {
+impl HasId for Renderable {
     type Id = NodeId;
 }
 
@@ -361,8 +354,10 @@ pub struct FlatCamera<'a> {
     global_transform: Mat4,
 }
 
+/// Used to select a pipeline from a cache.
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
 struct PipelineKey(MeshVariant, MaterialVariant);
+impl identity_hash::IdentityHashable for PipelineKey {}
 
 /// Key used to collect material/meshes into instances
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
@@ -377,6 +372,21 @@ struct MatMeshInstances<'a> {
     mesh_slot: Slot<'a, GpuMesh>,
     pipeline_key: PipelineKey,
     instance_data: Vec<Mat4>,
+}
+
+impl<'a> MatMeshInstances<'a> {
+    pub fn new(
+        material_slot: Slot<'a, GpuMaterial>,
+        mesh_slot: Slot<'a, GpuMesh>,
+        pipeline_key: PipelineKey,
+    ) -> Self {
+        Self {
+            material_slot,
+            mesh_slot,
+            pipeline_key,
+            instance_data: Vec::new(),
+        }
+    }
 }
 
 /// Creates a pipeline compatible with the material and mesh supplied.
