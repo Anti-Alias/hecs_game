@@ -1,16 +1,16 @@
 use std::f32::consts::TAU;
 use glam::{Vec3, Quat};
 use hecs_game::math::Transform;
-use hecs_game::{g3d, App, AppBuilder, EnginePlugin, Color, Game, GraphicsState, Handle, Keyboard, Projection, RunContext, Scene, Stage, StartEvent, SyncState};
+use hecs_game::{g3d, App, AppBuilder, Color, EnginePlugin, Flycam, FlycamPlugin, Game, GraphicsState, Handle, Projection, RunContext, Scene, Stage, StartEvent, SyncState};
 use hecs::World;
 use rand::{SeedableRng, Rng};
 use rand::rngs::SmallRng;
-use winit::keyboard::KeyCode;
 
 fn main() {
     let mut builder = App::builder();
     builder
         .plugin(EnginePlugin)
+        .plugin(FlycamPlugin)
         .plugin(plugin);
     builder.run();
 }
@@ -18,7 +18,6 @@ fn main() {
 fn plugin(builder: &mut AppBuilder) {
     builder
         .system(Stage::Update, rotate_cubes)
-        .system(Stage::Update, control_flycam)
         .event_handler(handle_start)
         .tick_rate(60.0);
 }
@@ -69,7 +68,7 @@ fn handle_start(game: &mut Game, _event: &StartEvent) {
     
     // Spawns cubes
     let mut rng = SmallRng::seed_from_u64(48);
-    for _ in 0..10_000 {
+    for _ in 0..100 {
 
         // Creates random transform
         let scale = 0.2 + rng.gen::<f32>() * 0.2;
@@ -107,6 +106,12 @@ fn handle_start(game: &mut Game, _event: &StartEvent) {
     }
 }
 
+struct Rotator {
+    axis: Vec3,
+    angle: f32,
+    speed: f32,
+}
+
 fn rotate_cubes(game: &mut Game, ctx: RunContext) {
     let mut world = game.get::<&mut World>();
     let query = world.query_mut::<(&mut Transform, &mut Rotator)>();
@@ -122,51 +127,4 @@ fn rotate_cubes(game: &mut Game, ctx: RunContext) {
             });
         }
     });
-}
-
-fn control_flycam(game: &mut Game, ctx: RunContext) {
-
-    let mut world = game.get::<&mut World>();
-    let keyboard = game.get::<&Keyboard>();
-    let delta = ctx.delta_secs();
-    
-    for (_, (transform, flycam)) in world.query_mut::<(&mut Transform, &Flycam)>() {
-        if keyboard.is_pressed(KeyCode::KeyA) {
-            transform.translation.x -= flycam.speed * delta;
-        }
-        if keyboard.is_pressed(KeyCode::KeyD) {
-            transform.translation.x += flycam.speed * delta;
-        }
-        if keyboard.is_pressed(KeyCode::KeyW) {
-            transform.translation.z -= flycam.speed * delta;
-        }
-        if keyboard.is_pressed(KeyCode::KeyS) {
-            transform.translation.z += flycam.speed * delta;
-        }
-        if keyboard.is_pressed(KeyCode::Space) {
-            transform.translation.y += flycam.speed * delta;
-        }
-        if keyboard.is_pressed(KeyCode::ShiftLeft) {
-            transform.translation.y -= flycam.speed * delta;
-        }
-    }
-}
-
-struct Rotator {
-    axis: Vec3,
-    angle: f32,
-    speed: f32,
-}
-
-
-struct Flycam {
-    pub speed: f32
-}
-
-impl Default for Flycam {
-    fn default() -> Self {
-        Self {
-            speed: 2.0,
-        }
-    }
 }

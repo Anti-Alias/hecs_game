@@ -67,12 +67,10 @@ impl App {
             self.event_bus.queue_event(StartEvent);
         }
         while self.tick_accum >= self.tick_duration {
-            log::trace!("--- TICK ---");
             self.run_stage(Stage::PreUpdate, self.tick_duration, 1.0);
             self.run_stage(Stage::Update, self.tick_duration, 1.0);
             self.run_stage(Stage::UpdatePhysics, self.tick_duration, 1.0);
             self.run_stage(Stage::PostUpdate, self.tick_duration, 1.0);
-            self.run_stage(Stage::Cleanup, self.tick_duration, 1.0);
             self.tick_accum -= self.tick_duration;
             self.tick += 1; 
         }
@@ -384,9 +382,6 @@ pub enum Stage {
     /// Per frame.
     /// Updates animations and renders.
     Render,
-    /// Per frame.
-    /// Any code that needs to clear data structures every tick.
-    Cleanup,
 }
 
 
