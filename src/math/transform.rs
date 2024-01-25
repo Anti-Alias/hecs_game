@@ -87,3 +87,12 @@ impl From<Transform> for Mat4 {
         )
     }
 }
+
+
+pub fn lerp_matrices(a: Mat4, b: Mat4, t: f32) -> Mat4 {
+    let col0 = a.col(0).lerp(b.col(0), t);
+    let col1 = a.col(1).lerp(b.col(1), t);
+    let col2 = a.col(2).lerp(b.col(2), t);
+    let col3 = a.col(3).lerp(b.col(3), t);
+    Mat4::from_cols(col0, col1, col2, col3)
+}

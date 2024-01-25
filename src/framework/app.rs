@@ -16,10 +16,10 @@ pub struct App {
     tick_accum: Duration,                               // Time accumulated for current tick.
     tick_duration: Duration,                            // Length of time for a single game tick.
     systems: HashMap<System, SystemMeta>,               // Systems that manipulate the state of the Game.
+    enabled_systems: HashMap<Stage, VecSet<System>>,    // Subset of systems that are enabled.
     scripts: HashMap<Stage, Vec<Script>>,               // Scripts.
     event_queue: VecDeque<DynEvent>,                    // Enqueued events
     event_bus: EventBus,                                // Place to fire events, and attach event handlers.
-    enabled_systems: HashMap<Stage, VecSet<System>>,    // Subset of systems that are enabled.
     commands: VecDeque<Box<dyn Command>>,
     app_requests: VecDeque<AppRequest>,
 }
@@ -35,10 +35,10 @@ impl App {
                 tick_accum: Duration::ZERO,
                 tick_duration: Duration::from_secs_f64(1.0/60.0),
                 systems: HashMap::default(),
+                enabled_systems: HashMap::default(),
                 scripts: HashMap::default(),
                 event_queue: VecDeque::default(),
                 event_bus: EventBus::default(),
-                enabled_systems: HashMap::default(),
                 commands: VecDeque::new(),
                 app_requests: VecDeque::new(),
             },

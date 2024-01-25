@@ -5,8 +5,8 @@ use glam::{Mat4, Affine3A, Vec3};
 use tracing::instrument;
 use derive_more::From;
 use wgpu::{RenderPass, Device, Queue, RenderPipeline, BufferUsages, Buffer, BufferDescriptor, RenderPipelineDescriptor, PipelineLayoutDescriptor, VertexState, PrimitiveState, PrimitiveTopology, FrontFace, PolygonMode, FragmentState, TextureFormat, ColorTargetState, BlendState, ColorWrites, ShaderModuleDescriptor, ShaderSource, VertexBufferLayout, VertexStepMode, VertexAttribute, VertexFormat, DepthStencilState, CompareFunction, StencilState, DepthBiasState};
-use crate::math::{Transform, Frustum, Volume, AABB, Sphere};
-use crate::{reserve_buffer, Handle, HandleId, NodeId, Scene, ShaderPreprocessor, Slot, HasId};
+use crate::math::{lerp_matrices, Frustum, Sphere, Transform, Volume, AABB};
+use crate::{reserve_buffer, Handle, HandleId, HasId, InterpolationMode, NodeId, Scene, ShaderPreprocessor, Slot};
 use crate::g3d::{GpuMaterial, GpuMesh, MeshVariant, MaterialVariant, Camera, CameraTarget};
 
 const INSTANCE_SLOT: u32 = 0;
@@ -205,21 +205,13 @@ pub(crate) fn flatten_scene<'a>(scene: &'a Scene<Renderable>, t: f32) -> FlatSce
             RenderableKind::Camera(camera) => flat_scene.flat_cams.push(FlatCamera {
                 global_transform,
                 _target: &camera.target,
-                projection: lerp_mats(camera.previous_projection, camera.projection, t),
+                projection: lerp_matrices(camera.previous_projection, camera.projection, t),
             }),
             RenderableKind::Empty => {},
         }
         global_transform
     });
     flat_scene
-}
-
-fn lerp_mats(a: Mat4, b: Mat4, t: f32) -> Mat4 {
-    let col0 = a.col(0).lerp(b.col(0), t);
-    let col1 = a.col(1).lerp(b.col(1), t);
-    let col2 = a.col(2).lerp(b.col(2), t);
-    let col3 = a.col(3).lerp(b.col(3), t);
-    Mat4::from_cols(col0, col1, col2, col3)
 }
 
 // Collection of render jobs to render later.
@@ -241,9 +233,22 @@ struct RenderJob<'a> {
  */
 pub struct Renderable {
     pub kind: RenderableKind,
-    pub transform: Transform,
-    pub previous_transform: Transform,
+    transform: Transform,
+    previous_transform: Transform,
     pub volume: Option<Volume>,
+    pub interpolation_mode: InterpolationMode,
+}
+
+impl Default for Renderable {
+    fn default() -> Self {
+        Self {
+            kind: RenderableKind::Empty,
+            transform: Transform::IDENTITY,
+            previous_transform: Transform::IDENTITY,
+            volume: None,
+            interpolation_mode: InterpolationMode::Skip,
+        }
+    }
 }
 
 impl Renderable {
@@ -252,12 +257,7 @@ impl Renderable {
      * Creates an empty renderable.
      */
     pub fn empty() -> Self {
-        Self {
-            kind: RenderableKind::Empty,
-            transform: Transform::IDENTITY,
-            previous_transform: Transform::IDENTITY,
-            volume: None,
-        }
+        Self::default()
     }
 
     /**
@@ -266,9 +266,7 @@ impl Renderable {
     pub fn mat_mesh(material: Handle<GpuMaterial>, mesh: Handle<GpuMesh>) -> Self {
         Self {
             kind: RenderableKind::MatMesh(MatMesh(material, mesh)),
-            transform: Transform::IDENTITY,
-            previous_transform: Transform::IDENTITY,
-            volume: None,
+            ..Default::default()
         }
     }
 
@@ -278,9 +276,7 @@ impl Renderable {
     pub fn camera() -> Self {
         Self {
             kind: RenderableKind::Camera(Camera::default()),
-            transform: Transform::IDENTITY,
-            previous_transform: Transform::IDENTITY,
-            volume: None,
+            ..Default::default()
         }
     }
 
@@ -304,6 +300,11 @@ impl Renderable {
         self
     }
 
+    pub fn with_interpolation_mode(mut self, interpolation_mode: InterpolationMode) -> Self {
+        self.interpolation_mode = interpolation_mode;
+        self
+    }
+
     pub fn with_volume(mut self, volume: Volume) -> Self {
         self.volume = Some(volume);
         self
@@ -317,6 +318,26 @@ impl Renderable {
     pub fn with_sphere_volume(mut self, center: Vec3, radius: f32) -> Self {
         self.volume = Some(Volume::Sphere(Sphere::new(center, radius)));
         self
+    }
+
+    pub fn transform(&self) -> Transform {
+        self.transform
+    }
+
+    pub fn set_transform(&mut self, transform: Transform) {
+        match self.interpolation_mode {
+            InterpolationMode::Interpolate => {
+                self.previous_transform = self.transform;
+                self.transform = transform;
+            },
+            InterpolationMode::Skip => {
+                self.transform = transform;
+                self.interpolation_mode = InterpolationMode::Interpolate;
+            },
+            InterpolationMode::None => {
+                self.transform = transform;
+            },
+        }
     }
 }
 
@@ -335,6 +356,36 @@ pub enum RenderableKind {
     /// No renderable content.
     /// Useful for grouping objects with no visible parent.
     Empty,
+}
+
+impl RenderableKind {
+    pub fn as_mat_mesh(&self) -> Option<&MatMesh> {
+        match self {
+            RenderableKind::MatMesh(mat_mesh) => Some(mat_mesh),
+            _ => None,
+        }
+    }
+
+    pub fn as_mat_mesh_mut(&mut self) -> Option<&mut MatMesh> {
+        match self {
+            RenderableKind::MatMesh(mat_mesh) => Some(mat_mesh),
+            _ => None,
+        }
+    }
+
+    pub fn as_camera(&self) -> Option<&Camera> {
+        match self {
+            RenderableKind::Camera(camera) => Some(camera),
+            _ => None,
+        }
+    }
+
+    pub fn as_camera_mut(&mut self) -> Option<&mut Camera> {
+        match self {
+            RenderableKind::Camera(camera) => Some(camera),
+            _ => None,
+        }
+    }
 }
 
 /// Material mesh renderable.

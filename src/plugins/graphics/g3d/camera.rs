@@ -1,14 +1,15 @@
 use std::f32::consts::PI;
-
 use glam::Mat4;
+use crate::InterpolationMode;
 
 /**
  * Graphical camera which controls what can be seen and from what perspective.
  */
 pub struct Camera {
     pub target: CameraTarget,
-    pub projection: Mat4,
-    pub previous_projection: Mat4,
+    pub(crate) projection: Mat4,
+    pub(crate) previous_projection: Mat4,
+    pub interpolation_mode: InterpolationMode,
 }
 
 impl Default for Camera {
@@ -17,6 +18,7 @@ impl Default for Camera {
             target: CameraTarget::OnScreen,
             projection: Mat4::IDENTITY,
             previous_projection: Mat4::IDENTITY,
+            interpolation_mode: InterpolationMode::Skip,
         }
     }
 }
@@ -27,7 +29,7 @@ impl Camera {
         Self {
             target: CameraTarget::OnScreen,
             projection,
-            previous_projection: Mat4::IDENTITY,
+            ..Default::default()
         }
     }
 
@@ -36,7 +38,7 @@ impl Camera {
         Self {
             target: CameraTarget::OnScreen,
             projection,
-            previous_projection: Mat4::IDENTITY,
+            ..Default::default()
         }
     }
 
@@ -49,8 +51,22 @@ impl Camera {
         Self {
             target: CameraTarget::OnScreen,
             projection,
-            previous_projection: Mat4::IDENTITY,
+            ..Default::default()
         }
+    }
+
+    pub fn projection(&self) -> Mat4 {
+        self.projection
+    }
+
+    pub fn set_projection(&mut self, projection: Mat4) {
+        self.previous_projection = projection;
+        self.projection = projection;
+    }
+
+    pub fn with_interpolation_mode(mut self, interpolation_mode: InterpolationMode) -> Self {
+        self.interpolation_mode = interpolation_mode;
+        self
     }
 }
 

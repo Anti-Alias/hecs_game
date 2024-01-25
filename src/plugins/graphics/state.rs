@@ -91,8 +91,9 @@ impl GraphicsState {
     /// Resizes pixel size of surface.
     /// Commonly invoked when window size changes.
     pub(crate) fn resize(&mut self, width: u32, height: u32) {
-        self.surface_config.width = width.max(1);
-        self.surface_config.height = height.max(1);
+        let (width, height) = (width.max(1), height.max(1));
+        self.surface_config.width = width;
+        self.surface_config.height = height;
         self.surface.configure(&self.device, &self.surface_config);
         self.depth_view = create_depth_view(&self.device, width, height, self.depth_format);
     }

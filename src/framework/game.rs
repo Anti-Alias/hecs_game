@@ -23,7 +23,7 @@ impl Game {
     }
 
     /// Adds a domain to the game unless one is already present.
-    pub fn init<D: Domain>(&mut self, producer: impl Fn(&mut Game) -> D) -> &mut Self {
+    pub fn init<D: Domain>(&mut self, producer: impl FnOnce(&mut Game) -> D) -> &mut Self {
         let type_id = TypeId::of::<D>();
         if !self.domains.contains_key(&type_id) {
             let domain = producer(self);

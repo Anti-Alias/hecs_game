@@ -42,66 +42,46 @@ impl Plugin for GraphicsPlugin {
 }
 
 fn sync_graphics(game: &mut Game, _ctx: RunContext) {
+
     let mut g3d_scene = game.get::<&mut Scene<g3d::Renderable>>();
     let mut world = game.get::<&mut World>();
     let g3d_scene = &mut g3d_scene.graph;
     let world = &mut *world;
-    let query = world.query_mut::<(&Transform, &Tracker<g3d::Renderable>, Option<&SyncState>)>();
+    
+    // Syncs transforms
+    let renderable_query = world.query_mut::<(&Transform, &Tracker<g3d::Renderable>)>();
     rayon::scope(|s| {
-        for batch in query.into_iter_batched(10000) {
+        for batch in renderable_query.into_iter_batched(10000) {
             s.spawn(|_| {
-                for (_, (transform, tracker, state)) in batch {
+                for (_, (transform, tracker)) in batch {
                     let renderable = unsafe {
                         g3d_scene.get_mut_unsafe(tracker.id())
                     };
                     let Some(renderable) = renderable else { continue };
-                    match state {
-                        Some(SyncState::Interpolate) => {
-                            renderable.previous_transform = renderable.transform;
-                            renderable.transform = *transform;
-                        },
-                        Some(SyncState::NoInterpolate) => {
-                            renderable.previous_transform = *transform;
-                            renderable.transform = *transform;
-                        },
-                        Some(SyncState::Teleport) => {
-                            renderable.previous_transform = *transform;
-                            renderable.transform = *transform;
-                        },
-                        None => {},
-                    }
+                    renderable.set_transform(*transform);
                 }
             });
         }
     });
-    
 
-    // Syncs projections
-    let query = world.query_mut::<(&Projection, &Tracker<g3d::Renderable>, Option<&SyncState>)>();
-    for (_, (projection, tracker, state)) in query {
+    // Syncs projections of cameras
+    let camera_query = world.query_mut::<(&Projection, &Tracker<g3d::Renderable>)>();
+    for (_, (projection, tracker)) in camera_query {
         let Some(renderable) = g3d_scene.get_mut(tracker.id()) else { continue };
-        let g3d::RenderableKind::Camera(camera) = &mut renderable.kind else { continue };
-        match state {
-            Some(SyncState::Interpolate) => {
+        let Some(camera) = renderable.kind.as_camera_mut() else { continue };
+        match renderable.interpolation_mode {
+            InterpolationMode::Interpolate => {
                 camera.previous_projection = camera.projection;
                 camera.projection = projection.0;
             },
-            Some(SyncState::NoInterpolate) => {
+            InterpolationMode::Skip => {
                 camera.previous_projection = projection.0;
                 camera.projection = projection.0;
             },
-            Some(SyncState::Teleport) => {
+            InterpolationMode::None => {
                 camera.previous_projection = projection.0;
                 camera.projection = projection.0;
             },
-            None => {},
-        }
-    }
-
-    // Takes objects out of their teleportation state
-    for (_, state) in world.query_mut::<&mut SyncState>() {
-        if *state == SyncState::Teleport {
-            *state = SyncState::Interpolate;
         }
     }
 }
@@ -177,17 +157,18 @@ fn enqueue_render(
     graphics_state.queue.submit(commands);
 }
 
+/// Determines how
 #[derive(Copy, Clone, Eq, PartialEq, Default, Debug)]
-pub enum SyncState {
+pub enum InterpolationMode {
     /// Graphics will interpolate between previous and current state.
     /// Small visual latency.
     /// Good for high refresh-rate monitors.
     Interpolate,
-    /// Graphics will be shown at current location only.
-    /// Good for consistency, but looks choppy if frame rate is higher than tick rate.
-    NoInterpolate,
     /// Graphics will not interpolate this tick.
     /// Moves to Interpolate state after.
     #[default]
-    Teleport,
+    Skip,
+    /// Graphics will be shown at current location only.
+    /// Good for consistency, but looks choppy if frame rate is higher than tick rate.
+    None,
 }

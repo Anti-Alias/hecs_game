@@ -1,7 +1,7 @@
 use std::f32::consts::TAU;
 use glam::{Vec3, Quat};
 use hecs_game::math::Transform;
-use hecs_game::{g3d, App, AppBuilder, Color, EnginePlugin, Flycam, FlycamPlugin, Game, GraphicsState, Handle, InputRequest, InputRequests, Projection, RunContext, Scene, Stage, StartEvent, SyncState};
+use hecs_game::{g3d, App, AppBuilder, Color, EnginePlugin, Flycam, FlycamPlugin, Game, GraphicsState, Handle, WindowRequests, PerspectiveProjector, Projection, RunContext, Scene, Stage, StartEvent};
 use hecs::World;
 use rand::{SeedableRng, Rng};
 use rand::rngs::SmallRng;
@@ -27,23 +27,29 @@ fn handle_start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
     // Extracts domains
     let mut world       = game.get::<&mut World>();
     let mut scene       = game.get::<&mut Scene<g3d::Renderable>>();
-    let mut requests    = game.get::<&mut InputRequests>();
+    let mut requests    = game.get::<&mut WindowRequests>();
     let state           = game.get::<&GraphicsState>();
 
-    // Grabs cursor
-    requests.push(InputRequest::GrabCursor);
-    requests.push(InputRequest::HideCursor);
+    // Grabs + cursor
+    requests.set_cursor_grab(true);
+    requests.set_cursor_visible(false);
 
     // Spawns camera
     let cam_tracker = scene.insert(g3d::Renderable::camera());
     let cam_transform = Transform::default().with_xyz(0.0, 0.0, 1.0);
-    let cam_projection = Projection::perspective(90.0, 1.0, 0.1, 1000.0);
     world.spawn((
         cam_tracker,
         cam_transform,
-        cam_projection,
-        SyncState::default(),
-        Flycam::default()
+        // OrthographicProjector {
+        //     far: 1000.0,
+        //     ..Default::default()
+        // },
+        PerspectiveProjector {
+            aspect_ratio: 1.0,
+            ..Default::default()
+        },
+        Projection::default(),
+        Flycam::default(),
     ));
     
     // Creates material
@@ -71,7 +77,7 @@ fn handle_start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
     
     // Spawns cubes
     let mut rng = SmallRng::seed_from_u64(48);
-    for _ in 0..100 {
+    for _ in 0..10 {
 
         // Creates random transform
         let scale = 0.2 + rng.gen::<f32>() * 0.2;
@@ -105,7 +111,7 @@ fn handle_start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
             .with_mat_mesh(material.clone(), mesh)
             .with_aabb_volume(Vec3::ZERO, Vec3::splat(0.5));
         let renderable = scene.insert(renderable);
-        world.spawn((renderable, transform, rotator, SyncState::default()));
+        world.spawn((renderable, transform, rotator));
     }
 }
 

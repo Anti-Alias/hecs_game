@@ -2,13 +2,14 @@ use std::collections::VecDeque;
 use std::hash::Hash;
 use glam::Vec2;
 use winit::keyboard::KeyCode;
-use crate::{AppBuilder, Game, GraphicsState, HashSet, Plugin, RunContext, Stage};
+use winit::window::Fullscreen;
+use crate::{AppBuilder, Game, HashSet, Plugin, RunContext, Stage};
 
 pub struct InputPlugin;
 impl Plugin for InputPlugin {
     fn install(&mut self, builder: &mut AppBuilder) {
         builder.game()
-            .add(InputRequests::default())
+            .add(WindowRequests::default())
             .add(Keyboard::default())
             .add(Cursor::default());
         builder.system(Stage::SyncInput, sync_inputs);
@@ -182,58 +183,46 @@ where
 fn sync_inputs(game: &mut Game, _ctx: RunContext) {
     let mut keyboard = game.get::<&mut Keyboard>();
     let mut cursor = game.get::<&mut Cursor>();
-    let mut requests = game.get::<&mut InputRequests>();
-
     keyboard.sync_previous_state();
     cursor.movement = Vec2::ZERO;
-    if cursor.is_grabbed {
-        let state = game.get::<&mut GraphicsState>();
-        let center = state.center();
-        requests.push(InputRequest::SetCursorPosition(center));
-    }
 }
 
-/// Queue of requests to dispatch to the application's runner.
+/// Queue of requests to dispatch to the application's window.
 #[derive(Default)]
-pub struct InputRequests(VecDeque<InputRequest>);
-impl InputRequests {
+pub struct WindowRequests(VecDeque<WindowRequest>);
+impl WindowRequests {
 
     pub fn set_cursor_position(&mut self, position: Vec2) {
-        self.push(InputRequest::SetCursorPosition(position));
+        self.push(WindowRequest::SetCursorPosition(position));
     }
 
-    pub fn hide_cursor(&mut self) {
-        self.push(InputRequest::HideCursor);
+    pub fn set_cursor_visible(&mut self, cursor_visible: bool) {
+        self.push(WindowRequest::SetCursorVisible(cursor_visible));
     }
 
-    pub fn show_cursor(&mut self) {
-        self.push(InputRequest::ShowCursor);
+    pub fn set_cursor_grab(&mut self, cursor_grab: bool) {
+        self.push(WindowRequest::SetCursorGrab(cursor_grab));
     }
 
-    pub fn grab_cursor(&mut self) {
-        self.push(InputRequest::GrabCursor);
+    pub fn set_fullscreen(&mut self, fullscreen: Option<Fullscreen>) {
+        self.push(WindowRequest::SetFullscreen(fullscreen));
     }
 
-    pub fn ungrab_cursor(&mut self) {
-        self.push(InputRequest::UngrabCursor);
-    }
-
-    pub fn push(&mut self, request: InputRequest) {
+    pub fn push(&mut self, request: WindowRequest) {
         self.0.push_back(request);
     }
 
-    pub(crate) fn pop(&mut self) -> Option<InputRequest> {
+    pub(crate) fn pop(&mut self) -> Option<WindowRequest> {
         self.0.pop_front()
     }
 }
 
 
 /// Request that application code makes to the window manager.
-#[derive(Copy, Clone, PartialEq, Debug)]
-pub enum InputRequest {
+#[derive(PartialEq, Debug)]
+pub enum WindowRequest {
     SetCursorPosition(Vec2),
-    HideCursor,
-    ShowCursor,
-    GrabCursor,
-    UngrabCursor,
+    SetCursorVisible(bool),
+    SetCursorGrab(bool),
+    SetFullscreen(Option<Fullscreen>),
 }
