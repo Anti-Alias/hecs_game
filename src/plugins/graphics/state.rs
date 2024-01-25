@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use glam::Vec2;
 use winit::window::Window;
 use wgpu::*;
 
@@ -57,19 +58,23 @@ impl GraphicsState {
     }
 
     /// Convenience method for getting the surface's size in pixels.
-    pub fn surface_size(&self) -> (u32, u32) {
-        (self.surface_config.width, self.surface_config.height)
+    pub fn size(&self) -> Vec2 {
+        Vec2::new(self.surface_config.width as f32, self.surface_config.height as f32)
+    }
+
+    pub fn center(&self) -> Vec2 {
+        self.size() * 0.5
     }
 
     /// Convenience method for getting the surface's aspect ratio (height / width).
-    pub fn surface_aspect_ratio(&self) -> f32 {
+    pub fn aspect_ratio(&self) -> f32 {
         let width = self.surface_config.width as f32;
         let height = self.surface_config.width as f32;
         height / width
     }
 
     /// Format of the surface's texture.
-    pub fn surface_format(&self) -> TextureFormat {
+    pub fn format(&self) -> TextureFormat {
         self.surface_config.format
     }
 

@@ -1,9 +1,9 @@
-use std::collections::{VecDeque, vec_deque};
+use std::collections::VecDeque;
 use std::time::Duration;
 use log::warn;
 use tracing::instrument;
 use vecmap::VecSet;
-use crate::{Event, EventBus, EventHandler, Game, Script, StartEvent, HashMap};
+use crate::{DynEvent, Event, EventBus, EventHandler, Game, HashMap, Script, StartEvent};
     
 /**
  * Adds logic to a [`Game`] by executing [`System`]s across it.
@@ -11,16 +11,17 @@ use crate::{Event, EventBus, EventHandler, Game, Script, StartEvent, HashMap};
  */
 pub struct App {
     pub game: Game,                                     // Game to update state via systems.
+    pub(crate) quit_requested: bool,                    // If true, app has requested that it quit.
     tick: u64,                                          // Current tick.
     tick_accum: Duration,                               // Time accumulated for current tick.
     tick_duration: Duration,                            // Length of time for a single game tick.
     systems: HashMap<System, SystemMeta>,               // Systems that manipulate the state of the Game.
     scripts: HashMap<Stage, Vec<Script>>,               // Scripts.
+    event_queue: VecDeque<DynEvent>,                    // Enqueued events
     event_bus: EventBus,                                // Place to fire events, and attach event handlers.
     enabled_systems: HashMap<Stage, VecSet<System>>,    // Subset of systems that are enabled.
     commands: VecDeque<Box<dyn Command>>,
     app_requests: VecDeque<AppRequest>,
-    external_requests: VecDeque<RunnerRequest>,
 }
 
 impl App {
@@ -29,16 +30,17 @@ impl App {
         AppBuilder {
             app: Self {
                 game: Game::new(),
+                quit_requested: false,
                 tick: 1,
                 tick_accum: Duration::ZERO,
                 tick_duration: Duration::from_secs_f64(1.0/60.0),
                 systems: HashMap::default(),
                 scripts: HashMap::default(),
-                event_bus: EventBus::new(),
+                event_queue: VecDeque::default(),
+                event_bus: EventBus::default(),
                 enabled_systems: HashMap::default(),
                 commands: VecDeque::new(),
                 app_requests: VecDeque::new(),
-                external_requests: VecDeque::new(),
             },
             runner: None,
         }
@@ -52,19 +54,16 @@ impl App {
      * Good for client applications.
      */
     #[instrument(skip(self))]
-    pub fn run_frame(&mut self, delta: Duration) -> vec_deque::Iter<'_, RunnerRequest> {
+    pub fn run_frame(&mut self, delta: Duration) {
         self.tick_accum += delta;
-        self.external_requests.clear();
-        self.run_stage(Stage::Input, delta, 1.0);
         self.run_tick();
         self.run_render(delta);
-        return self.external_requests.iter()
     }
 
     fn run_tick(&mut self) {
         let is_tick = self.tick_accum >= self.tick_duration;
         if is_tick && self.tick == 1 {
-            self.event_bus.queue_event(StartEvent);
+            self.event_queue.push_back(DynEvent::new(StartEvent));
         }
         while self.tick_accum >= self.tick_duration {
             self.run_stage(Stage::PreUpdate, self.tick_duration, 1.0);
@@ -75,7 +74,8 @@ impl App {
             self.tick += 1; 
         }
         if is_tick {
-            self.run_stage(Stage::Sync, self.tick_duration, 1.0);
+            self.run_stage(Stage::SyncGraphics, self.tick_duration, 1.0);
+            self.run_stage(Stage::SyncInput, self.tick_duration, 1.0);
         }
     }
 
@@ -96,8 +96,7 @@ impl App {
                 let ctx = RunContext {
                     commands: &mut self.commands,
                     app_requests: &mut self.app_requests,
-                    external_requests: &mut self.external_requests,
-                    event_bus: &mut self.event_bus,
+                    event_queue: &mut self.event_queue,
                     delta,
                     partial_ticks,
                 };
@@ -111,8 +110,7 @@ impl App {
                 let ctx = RunContext {
                     commands: &mut self.commands,
                     app_requests: &mut self.app_requests,
-                    external_requests: &mut self.external_requests,
-                    event_bus: &mut self.event_bus,
+                    event_queue: &mut self.event_queue,
                     delta,
                     partial_ticks,
                 };
@@ -127,6 +125,7 @@ impl App {
                 AppRequest::EnableSystem(system)            => self.enable_system(system),
                 AppRequest::DisableSystem(system)           => self.disable_system(system),
                 AppRequest::StartScript { stage, script }   => self.run_script(stage, script),
+                AppRequest::Quit                            => self.quit_requested = true,
             }
         }
 
@@ -135,8 +134,20 @@ impl App {
             command.run(&mut self.game);
         }
 
-        // Runs event bus
-        self.event_bus.run_events(&mut self.game);
+        // Runs event bus for all queued events
+        while !self.event_queue.is_empty() {
+            let mut event_queue = std::mem::take(&mut self.event_queue);
+            let mut ctx = RunContext {
+                commands: &mut self.commands,
+                app_requests: &mut self.app_requests,
+                event_queue: &mut self.event_queue,
+                delta,
+                partial_ticks,
+            };
+            while let Some(event) = event_queue.pop_front() {
+                self.event_bus.handle_event(&mut self.game, event, &mut ctx);
+            }
+        }
     }
 
     fn enable_system(&mut self, system: System) {
@@ -276,8 +287,7 @@ where F: FnMut(&mut AppBuilder)
 pub struct RunContext<'a> {
     commands: &'a mut VecDeque<Box<dyn Command>>,
     app_requests: &'a mut VecDeque<AppRequest>,
-    external_requests: &'a mut VecDeque<RunnerRequest>,
-    event_bus: &'a mut EventBus,
+    event_queue: &'a mut VecDeque<DynEvent>,
     delta: Duration,
     partial_ticks: f32,
 }
@@ -309,6 +319,10 @@ impl<'a> RunContext<'a> {
         self.commands.push_back(Box::new(command));
     }
 
+    pub fn quit(&mut self) {
+        self.app_requests.push_back(AppRequest::Quit);
+    }
+
     /**
      * Requests that a [`Script`] be run over during the [`Stage`] specified.
      */
@@ -332,17 +346,10 @@ impl<'a> RunContext<'a> {
     }
 
     /**
-     * Requests that the [`Game`] quit.
-     */
-    pub fn quit(&mut self) {
-        self.external_requests.push_back(RunnerRequest::Quit);
-    }
-
-    /**
      * Queues an event to be fired at the desired stage.
      */
     pub fn fire<E: Event>(&mut self, event: E) {
-        self.event_bus.queue_event(event);
+        self.event_queue.push_back(DynEvent::new(event));
     }
 }
 
@@ -360,7 +367,7 @@ pub enum Stage {
     /// Per tick.
     /// Reads input devices (mouse, controllers etc).
     /// Stores those inputs into domain(s) for future reading.
-    Input,
+    SyncInput,
     /// Per tick.
     /// Decision-making stage.
     /// Maps inputs to "decisions".
@@ -378,7 +385,7 @@ pub enum Stage {
     /// IE: Hitbox / hurtbox.
     PostUpdate,
     /// Syncs current graphical state with current game state.
-    Sync,
+    SyncGraphics,
     /// Per frame.
     /// Updates animations and renders.
     Render,
@@ -411,9 +418,5 @@ pub(crate) enum AppRequest {
         stage: Stage,
         script: Script,
     },
-}
-
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub enum RunnerRequest {
     Quit,
 }

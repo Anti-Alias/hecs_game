@@ -1,7 +1,7 @@
 use std::f32::consts::TAU;
 use glam::{Vec3, Quat};
 use hecs_game::math::Transform;
-use hecs_game::{g3d, App, AppBuilder, Color, EnginePlugin, Flycam, FlycamPlugin, Game, GraphicsState, Handle, Projection, RunContext, Scene, Stage, StartEvent, SyncState};
+use hecs_game::{g3d, App, AppBuilder, Color, EnginePlugin, Flycam, FlycamPlugin, Game, GraphicsState, Handle, InputRequest, InputRequests, Projection, RunContext, Scene, Stage, StartEvent, SyncState};
 use hecs::World;
 use rand::{SeedableRng, Rng};
 use rand::rngs::SmallRng;
@@ -17,19 +17,22 @@ fn main() {
 
 fn plugin(builder: &mut AppBuilder) {
     builder
-        .system(Stage::Update, rotate_cubes)
         .event_handler(handle_start)
+        .system(Stage::Update, rotate_cubes)
         .tick_rate(60.0);
 }
 
-fn handle_start(game: &mut Game, _event: &StartEvent) {
-    
+fn handle_start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
+
     // Extracts domains
-    let (mut world, state, mut scene) = game.all::<(
-        &mut World,
-        &GraphicsState,
-        &mut Scene<g3d::Renderable>
-    )>();
+    let mut world       = game.get::<&mut World>();
+    let mut scene       = game.get::<&mut Scene<g3d::Renderable>>();
+    let mut requests    = game.get::<&mut InputRequests>();
+    let state           = game.get::<&GraphicsState>();
+
+    // Grabs cursor
+    requests.push(InputRequest::GrabCursor);
+    requests.push(InputRequest::HideCursor);
 
     // Spawns camera
     let cam_tracker = scene.insert(g3d::Renderable::camera());
@@ -116,7 +119,6 @@ fn rotate_cubes(game: &mut Game, ctx: RunContext) {
     let mut world = game.get::<&mut World>();
     let query = world.query_mut::<(&mut Transform, &mut Rotator)>();
     let delta = ctx.delta_secs();
-
     rayon::scope(|s| {
         for batch in query.into_iter_batched(1024) {
             s.spawn(|_| {

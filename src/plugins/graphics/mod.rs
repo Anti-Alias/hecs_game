@@ -36,21 +36,17 @@ impl Plugin for GraphicsPlugin {
                 g3d::G3D::new(device, queue)
             });
         builder
-            .system(Stage::Sync, sync_graphics)
+            .system(Stage::SyncGraphics, sync_graphics)
             .system(Stage::Render, render_3d);
     }
 }
 
 fn sync_graphics(game: &mut Game, _ctx: RunContext) {
-    let (mut g3d_scene, mut world) = game.all::<(
-        &mut Scene<g3d::Renderable>,
-        &mut World,
-    )>();
-
+    let mut g3d_scene = game.get::<&mut Scene<g3d::Renderable>>();
+    let mut world = game.get::<&mut World>();
     let g3d_scene = &mut g3d_scene.graph;
     let world = &mut *world;
     let query = world.query_mut::<(&Transform, &Tracker<g3d::Renderable>, Option<&SyncState>)>();
-
     rayon::scope(|s| {
         for batch in query.into_iter_batched(10000) {
             s.spawn(|_| {
@@ -111,11 +107,9 @@ fn sync_graphics(game: &mut Game, _ctx: RunContext) {
 }
 
 fn render_3d(game: &mut Game, ctx: RunContext) {
-    let (graphics_state, mut g3d_scene, mut g3d) = game.all::<(
-        &GraphicsState,
-        &mut Scene<g3d::Renderable>,
-        &mut g3d::G3D,
-    )>();
+    let graphics_state = game.get::<&GraphicsState>();
+    let mut g3d_scene = game.get::<&mut Scene<g3d::Renderable>>();
+    let mut g3d = game.get::<&mut g3d::G3D>();
     let surface_tex = match graphics_state.surface().get_current_texture() {
         Ok(surface_tex) => surface_tex,
         Err(err) => {
@@ -135,7 +129,7 @@ fn enqueue_render(
     surface_tex: &SurfaceTexture,
     ctx: &RunContext,
 ) {
-    let texture_format = graphics_state.surface_format();
+    let texture_format = graphics_state.format();
     let depth_format = graphics_state.depth_format();
     let depth_view = graphics_state.depth_view();
 
