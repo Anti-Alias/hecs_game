@@ -13,18 +13,21 @@ impl Clone for AssetManager {
     }
 }
 
-impl AssetManager {
-
-    pub fn builder() -> AssetManagerBuilder {
-        AssetManagerBuilder(Store {
+impl Default for AssetManager {
+    fn default() -> Self {
+        let store = Store {
             base_path: "assets".to_string(),
             default_protocol: None,
             protocols: HashMap::default(),
             handles: HashMap::default(),
             extensions_to_loaders: HashMap::default(),
             loaders: Vec::new(),
-        })
+        };
+        Self(Arc::new(RwLock::new(store)))
     }
+}
+
+impl AssetManager {
 
     pub fn load<A: Asset>(&self, path: impl AsRef<str>) -> Handle<A> {
         self.try_load(path).unwrap()
@@ -41,12 +44,13 @@ impl AssetManager {
         // Returns early if cached handle was found.
         let (handle, protocol, path_parts, dyn_loader) = {
             let mut store = self.0.write().unwrap();
-            let path_parts = PathParts::parse(path.as_ref(), store.default_protocol.as_deref())?;
+            let mut path_parts = PathParts::parse(path.as_ref(), store.default_protocol.as_deref())?;
             let handle_id = fxhash::hash64(&path_parts);
             if let Some(dyn_handle) = store.get_handle(handle_id) {
                 let handle = Handle::<A>::from_dyn(handle_id, dyn_handle.clone(), self.clone());
                 return Ok(handle);
             }
+            path_parts.body = format!("{}/{}", store.base_path, path_parts.body);
             let protocol = store.get_protocol(&path_parts.protocol)?;
             let dyn_loader = store.get_loader(&path_parts.extension)?;
             let handle = Handle::<A>::loading(handle_id, self.clone());
@@ -58,7 +62,7 @@ impl AssetManager {
         let t_handle = handle.clone();
         let dependencies = Dependencies(self.clone());
         std::thread::spawn(move || {
-            let bytes = match protocol.read(&path_parts.body) {
+            let bytes = match protocol.read(&path_parts.path()) {
                 Ok(bytes) => bytes,
                 Err(err) => {
                     log::error!("Failed to read bytes from {}: {}", path_parts, err);
@@ -93,44 +97,33 @@ impl AssetManager {
         let mut store = self.0.write().unwrap();
         store.handles.remove(&handle_id);
     }
-}
 
-pub struct AssetManagerBuilder(Store);
-impl AssetManagerBuilder {
-
-    pub fn base_path(mut self, base_path: impl Into<String>) -> Self {
-        self.0.base_path = base_path.into();
-        self
+    pub fn add_protocol(&self, protocol: impl Protocol, default: bool) {
+        let mut store = self.0.write().unwrap();
+        let protocol_name = String::from(protocol.name());
+        store.protocols.insert(protocol_name.clone(), Arc::new(protocol));
+        if default {
+            store.default_protocol = Some(protocol_name);
+        }
     }
 
-    pub fn protocol(mut self, protocol: impl Protocol) -> Self {
-        self.0.protocols.insert(protocol.name().into(), Arc::new(protocol));
-        self
+    pub fn set_base_path(&self, base_path: impl Into<String>) {
+        let mut store = self.0.write().unwrap();
+        store.base_path = base_path.into();
     }
 
-    pub fn default_protocol(mut self, protocol: impl Protocol) -> Self {
-        let name = protocol.name().to_string();
-        self.0.protocols.insert(name.clone(), Arc::new(protocol));
-        self.0.default_protocol = Some(name);
-        self
-    }
-
-    pub fn loader<L: Loader>(mut self, loader: L) -> Self {
+    pub fn add_loader<L: Loader>(&self, loader: L) {
+        let mut store = self.0.write().unwrap();
         let inner_loader = move |bytes: &[u8], extension: &str, dependencies: Dependencies| -> anyhow::Result<Box<dyn Asset>> {
             let asset = loader.load(bytes, extension, dependencies)?;
             let b: Box<dyn Asset> = Box::new(asset);
             Ok(b)
         };
-        self.0.loaders.push(Arc::new(inner_loader));
-        let loader_idx = self.0.loaders.len();
+        let loader_idx = store.loaders.len();
+        store.loaders.push(Arc::new(inner_loader));
         for extension in L::EXTENSIONS {
-            self.0.extensions_to_loaders.insert(extension.to_lowercase(), loader_idx);
+            store.extensions_to_loaders.insert(extension.to_lowercase(), loader_idx);
         }
-        self
-    }
-
-    pub fn build(self) -> AssetManager {
-        AssetManager(Arc::new(RwLock::new(self.0)))
     }
 }
 

@@ -1,12 +1,13 @@
 use std::f32::consts::TAU;
 use glam::{Vec3, Quat};
 use hecs_game::math::Transform;
-use hecs_game::{g3d, App, AppBuilder, Camera, CameraController, Color, EnginePlugin, FlycamMode, FlycamPlugin, Game, GraphicsState, Handle, OrthographicProjector, PerspectiveProjector, RunContext, ScalingMode, Scene, Stage, StartEvent};
+use hecs_game::{g3d, App, AppBuilder, AssetManager, Camera, CameraController, Color, EnginePlugin, FlycamMode, FlycamPlugin, Game, GraphicsState, Handle, OrthographicProjector, PerspectiveProjector, RunContext, ScalingMode, Scene, Stage, StartEvent, Texture};
 use hecs::World;
 use rand::{SeedableRng, Rng};
 use rand::rngs::SmallRng;
 
 fn main() {
+    env_logger::init();
     let mut builder = App::builder();
     builder
         .plugin(EnginePlugin::default())
@@ -28,6 +29,7 @@ fn handle_start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
     let mut world       = game.get::<&mut World>();
     let mut scene       = game.get::<&mut Scene<g3d::Renderable>>();
     let state           = game.get::<&GraphicsState>();
+    let assets          = game.get::<&AssetManager>();
 
     // Spawns flycam
     let cam_tracker = scene.insert(g3d::Renderable::camera());
@@ -54,12 +56,14 @@ fn handle_start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
             ..Default::default()
         },
     ));
+
+    // Loads texture
+    let texture: Handle<Texture> = assets.load("wobbuffet.png");
     
     // Creates material
     let material = g3d::Material::from(Color::BLUE);
     let material = g3d::GpuMaterial::from_material(&material, &state.device);
     let material = Handle::new(material);
-
     // Creates blue mesh
     let blue_mesh: g3d::Mesh = g3d::Mesh::from(g3d::Cuboid {
         center: Vec3::new(0.0, 0.0, 0.0),
@@ -117,6 +121,7 @@ fn handle_start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
         world.spawn((renderable, transform, rotator));
     }
 }
+
 
 struct Rotator {
     axis: Vec3,

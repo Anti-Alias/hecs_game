@@ -22,6 +22,7 @@ pub struct FileProtocol;
 impl Protocol for FileProtocol {
     fn name(&self) -> &str { return "file" }
     fn read(&self, path: &str) -> anyhow::Result<Vec<u8>> {
+        println!("File path: {path}");
         let bytes = std::fs::read(path)?;
         Ok(bytes)
     }

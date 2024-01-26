@@ -17,10 +17,8 @@ use crate::{Plugin, AppBuilder};
 pub struct AssetPlugin;
 impl Plugin for AssetPlugin {
     fn install(&mut self, builder: &mut AppBuilder) {
-        builder.game()
-            .init(|_| AssetManager::builder()
-                .default_protocol(FileProtocol)
-                .build()
-            );
+        let manager = AssetManager::default();
+        manager.add_protocol(FileProtocol, true);
+        builder.game().add(manager);
     }
 }

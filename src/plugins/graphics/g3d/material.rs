@@ -1,7 +1,7 @@
 use crate::Color;
 use bitflags::bitflags;
 use wgpu::util::{DeviceExt, BufferInitDescriptor};
-use wgpu::{BindGroup, Device, BindGroupLayout, BindGroupDescriptor, BindGroupLayoutDescriptor, BindGroupLayoutEntry, ShaderStages, BindingType, BindGroupEntry, BindingResource, BufferBinding, BufferUsages};
+use wgpu::{BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, BufferBinding, BufferUsages, Device, ShaderStages};
 
 
 pub struct Material {

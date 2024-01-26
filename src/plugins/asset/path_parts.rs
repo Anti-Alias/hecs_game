@@ -47,6 +47,11 @@ impl PathParts {
             extension: extension.into()
         })
     }
+
+    /// Body and extension. No protocol.
+    pub fn path(&self) -> String {
+        format!("{}.{}", self.body, self.extension)
+    }
 }
 
 impl fmt::Display for PathParts {

@@ -31,8 +31,11 @@ where
 /// Allows for a [`Loader`] to load other assets that the resulting asset is dependent on.
 pub struct Dependencies(pub(crate) AssetManager);
 impl Dependencies {
-    pub fn load<A: Asset>(&self, path: impl AsRef<str>) -> Result<Handle<A>, LoadError> {
+    pub fn try_load<A: Asset>(&self, path: impl AsRef<str>) -> Result<Handle<A>, LoadError> {
         return self.0.try_load(path)
+    }
+    pub fn load<A: Asset>(&self, path: impl AsRef<str>) -> Handle<A> {
+        return self.0.load(path)
     }
 }
 
