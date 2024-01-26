@@ -267,9 +267,8 @@ fn run_game_logic<'a>(
                 let mut inner_window = app.game.get::<&mut Window>();
                 let exclusive_fullscreen_supported = !target.is_wayland();
                 let fullscreen = match (fullscreen, exclusive_fullscreen_supported) {
-                    (None, _)                   => None,
-                    (Some(fullscreen), true)    => Some(fullscreen),
-                    (Some(_), false)            => Some(Fullscreen::Borderless(window.current_monitor())),
+                    (Some(Fullscreen::Exclusive(_)), false)  => Some(Fullscreen::Borderless(window.current_monitor())),
+                    (fullscreen, _) => fullscreen,
                 };
                 window.set_fullscreen(fullscreen.clone());
                 inner_window.fullscreen = fullscreen;
