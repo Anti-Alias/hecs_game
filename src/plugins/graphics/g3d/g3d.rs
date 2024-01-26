@@ -4,7 +4,7 @@ use std::sync::Arc;
 use glam::{Mat4, Affine3A, Vec3};
 use tracing::instrument;
 use derive_more::From;
-use wgpu::{RenderPass, Device, Queue, RenderPipeline, BufferUsages, Buffer, BufferDescriptor, RenderPipelineDescriptor, PipelineLayoutDescriptor, VertexState, PrimitiveState, PrimitiveTopology, FrontFace, PolygonMode, FragmentState, TextureFormat, ColorTargetState, BlendState, ColorWrites, ShaderModuleDescriptor, ShaderSource, VertexBufferLayout, VertexStepMode, VertexAttribute, VertexFormat, DepthStencilState, CompareFunction, StencilState, DepthBiasState};
+use wgpu::{BlendState, Buffer, BufferDescriptor, BufferUsages, ColorTargetState, ColorWrites, CompareFunction, DepthBiasState, DepthStencilState, Device, Face, FragmentState, FrontFace, PipelineLayoutDescriptor, PolygonMode, PrimitiveState, PrimitiveTopology, Queue, RenderPass, RenderPipeline, RenderPipelineDescriptor, ShaderModuleDescriptor, ShaderSource, StencilState, TextureFormat, VertexAttribute, VertexBufferLayout, VertexFormat, VertexState, VertexStepMode};
 use crate::math::{lerp_matrices, Frustum, Sphere, Transform, Volume, AABB};
 use crate::{reserve_buffer, Handle, HandleId, HasId, InterpolationMode, NodeId, Rect, Scene, ShaderPreprocessor, Slot, URect};
 use crate::g3d::{GpuMaterial, GpuMesh, MeshVariant, MaterialVariant, Camera, CameraTarget};
@@ -489,11 +489,20 @@ fn create_pipeline(
             entry_point: "vertex_main",
             buffers: &[INSTANCE_LAYOUT, vertex_layout],
         },
+        fragment: Some(FragmentState {
+            module: &module,
+            entry_point: "fragment_main",
+            targets: &[Some(ColorTargetState {
+                format: texture_format,
+                blend: Some(BlendState::REPLACE),
+                write_mask: ColorWrites::ALL,
+            })],
+        }),
         primitive: PrimitiveState {
             topology: PrimitiveTopology::TriangleList,
             strip_index_format: None,
             front_face: FrontFace::Ccw,
-            cull_mode: None,
+            cull_mode: Some(Face::Back),
             unclipped_depth: false,
             polygon_mode: PolygonMode::Fill,
             conservative: false,
@@ -506,15 +515,6 @@ fn create_pipeline(
             bias: DepthBiasState::default(),
         }),
         multisample: Default::default(),
-        fragment: Some(FragmentState {
-            module: &module,
-            entry_point: "fragment_main",
-            targets: &[Some(ColorTargetState {
-                format: texture_format,
-                blend: Some(BlendState::REPLACE),
-                write_mask: ColorWrites::ALL,
-            })],
-        }),
         multiview: None,
     })
 }

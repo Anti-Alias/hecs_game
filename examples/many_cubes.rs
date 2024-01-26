@@ -39,12 +39,12 @@ fn handle_start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
         CameraController {
             perspective: PerspectiveProjector {
                 aspect_ratio: 1.0,
-                near: 0.1,
+                near: 0.2,
                 far: 1000.0,
                 ..Default::default()
             },
             orthographic: OrthographicProjector {
-                near: 0.0,
+                near: 0.2,
                 far: 1000.0,
                 ..Default::default()
             },
@@ -56,7 +56,7 @@ fn handle_start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
     ));
     
     // Creates material
-    let material: g3d::Material = Color::BLUE.into();
+    let material = g3d::Material::from(Color::BLUE);
     let material = g3d::GpuMaterial::from_material(&material, &state.device);
     let material = Handle::new(material);
 
