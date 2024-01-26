@@ -11,6 +11,7 @@ use crate::{App, AppBuilder, AppRunner, Cursor, GraphicsState, Keyboard, Plugin,
 
 /// Opens a window and injects a [`GraphicsState`] for use in a graphics engine.
 /// Adds a runner that is synced with the framerate.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct WindowPlugin {
     pub window_width: u32,
     pub window_height: u32,
@@ -59,8 +60,12 @@ pub struct WindowFeatures {
 
 impl Default for WindowFeatures {
     fn default() -> Self {
+        let exclusive_fullscreen_supported = match std::env::var("WAYLAND_DISPLAY") {
+            Ok(var) => var.is_empty(),
+            Err(_) => true,
+        };
         Self {
-            exclusive_fullscreen_supported: !cfg!(wayland_platform),
+            exclusive_fullscreen_supported,
         }
     }
 }
