@@ -6,7 +6,6 @@ use winit::event::{DeviceEvent, ElementState, Event, MouseScrollDelta, WindowEve
 use winit::event_loop::{EventLoop, EventLoopBuilder, EventLoopWindowTarget};
 use winit::keyboard::PhysicalKey;
 use winit::monitor::{MonitorHandle, VideoMode};
-use winit::platform::wayland::EventLoopWindowTargetExtWayland;
 use winit::window::{CursorGrabMode, Fullscreen, Window as WinitWindow, WindowBuilder};
 use crate::{App, AppBuilder, AppRunner, Cursor, GraphicsState, Keyboard, Plugin, WindowRequest, WindowRequests};
 
@@ -15,6 +14,7 @@ use crate::{App, AppBuilder, AppRunner, Cursor, GraphicsState, Keyboard, Plugin,
 pub struct WindowPlugin {
     pub window_width: u32,
     pub window_height: u32,
+    pub features: WindowFeatures,
 }
 
 impl Default for WindowPlugin {
@@ -22,6 +22,7 @@ impl Default for WindowPlugin {
         Self {
             window_width: 512,
             window_height: 512,
+            features: WindowFeatures::default(),
         }
     }
 }
@@ -45,7 +46,22 @@ impl Plugin for WindowPlugin {
         builder.runner(WindowRunner {
             event_loop: Some(event_loop),
             window,
+            features: self.features,
         });
+    }
+}
+
+/// Optional features
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct WindowFeatures {
+    pub exclusive_fullscreen_supported: bool,
+}
+
+impl Default for WindowFeatures {
+    fn default() -> Self {
+        Self {
+            exclusive_fullscreen_supported: !cfg!(wayland_platform),
+        }
     }
 }
 
@@ -56,13 +72,13 @@ impl Plugin for WindowPlugin {
 pub struct WindowRunner {
     event_loop: Option<EventLoop::<()>>,
     window: WinitWindow,
+    features: WindowFeatures,
 }
 
 impl AppRunner for WindowRunner {
     fn run(&mut self, mut app: App) {
 
         let event_loop = self.event_loop.take().unwrap();
-        let window = &mut self.window;
 
         // Starts game loop
         let mut last_update: Option<SystemTime> = None;
@@ -70,10 +86,10 @@ impl AppRunner for WindowRunner {
             match event {
                 Event::WindowEvent { event, .. } => handle_window_event(
                     event,
-                    &window,
                     target,
                     &mut app,
-                    &window,
+                    &self.window,
+                    &self.features,
                     &mut last_update
                 ),
                 Event::DeviceEvent { event, .. } => handle_device_event(event, &mut app),
@@ -138,10 +154,10 @@ impl Window {
 
 fn handle_window_event(
     event: WindowEvent,
-    _window: &WinitWindow,
     target: &EventLoopWindowTarget<()>,
     app: &mut App,
     window: &WinitWindow,
+    features: &WindowFeatures,
     last_update: &mut Option<SystemTime>,
 ) {
     match event {
@@ -181,7 +197,7 @@ fn handle_window_event(
             }
         }
         WindowEvent::RedrawRequested => {
-            run_game_logic(app, last_update, window, target);
+            run_game_logic(app, last_update, window, &features, target);
             window.request_redraw();
         },
         WindowEvent::CloseRequested => target.exit(),
@@ -203,6 +219,7 @@ fn run_game_logic<'a>(
     app: &'a mut App,
     last_update: &mut Option<SystemTime>,
     window: &WinitWindow,
+    features: &WindowFeatures,
     target: &EventLoopWindowTarget<()>
 ) {
     // Computes delta since last frame.
@@ -265,8 +282,7 @@ fn run_game_logic<'a>(
             },
             WindowRequest::SetFullscreen(fullscreen) => {
                 let mut inner_window = app.game.get::<&mut Window>();
-                let exclusive_fullscreen_supported = !target.is_wayland();
-                let fullscreen = match (fullscreen, exclusive_fullscreen_supported) {
+                let fullscreen = match (fullscreen, features.exclusive_fullscreen_supported) {
                     (Some(Fullscreen::Exclusive(_)), false)  => Some(Fullscreen::Borderless(window.current_monitor())),
                     (fullscreen, _) => fullscreen,
                 };

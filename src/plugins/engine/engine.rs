@@ -2,8 +2,7 @@ use std::time::Duration;
 use winit::keyboard::KeyCode;
 use winit::monitor::{MonitorHandle, VideoMode};
 use winit::window::Fullscreen;
-
-use crate::{AppBuilder, AssetPlugin, EcsPlugin, Game, GraphicsPlugin, InputPlugin, Keyboard, Plugin, RunContext, Stage, Window, WindowPlugin, WindowRequests};
+use crate::{AppBuilder, AssetPlugin, EcsPlugin, Game, GraphicsPlugin, InputPlugin, Keyboard, Plugin, RunContext, Stage, Window, WindowFeatures, WindowPlugin, WindowRequests};
 
 /**
  * Main game engine plugin.
@@ -30,6 +29,7 @@ impl Plugin for EnginePlugin {
             .plugin(WindowPlugin {
                 window_width: self.window_width,
                 window_height: self.window_height,
+                features: WindowFeatures::default(),
             })
             .plugin(EcsPlugin)
             .plugin(AssetPlugin)
