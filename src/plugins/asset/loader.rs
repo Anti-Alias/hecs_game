@@ -1,5 +1,5 @@
 use std::any::Any;
-use crate::{Asset, AssetManager, Handle, LoadError};
+use crate::{Asset, AssetManager, Handle, LoadError, PathParts};
 
 /**
  * Responsible for loading an [`Asset`] in a background thread.
@@ -7,26 +7,33 @@ use crate::{Asset, AssetManager, Handle, LoadError};
 pub trait Loader: Send + Sync + 'static {
     type AssetType: Asset;
     const EXTENSIONS: &'static [&'static str];
-    fn load(&self, bytes: &[u8], extension: &str, dependencies: Dependencies) -> anyhow::Result<Self::AssetType>;
+    fn load(&self, bytes: &[u8], path: &PathParts, dependencies: Dependencies) -> anyhow::Result<Self::AssetType>;
 }
 
 /**
  * Dynamic wrapper around [`Loader`].
  */
 pub(crate) trait DynLoader: Send + Sync + 'static {
-    fn load(&self, bytes: &[u8], extension: &str, dependencies: Dependencies) -> anyhow::Result<Box<dyn Any>>;
+    fn load(&self, bytes: &[u8], path: &PathParts, dependencies: Dependencies) -> Box<dyn Any>;
 }
 
-impl<F, A> DynLoader for F
-where
-    F: Fn(&[u8], &str, Dependencies) -> anyhow::Result<A> + Send + Sync + 'static,
-    A: Asset,
-{
-    fn load(&self, bytes: &[u8], extension: &str, dependencies: Dependencies) -> anyhow::Result<Box<dyn Any>> {
-        let asset = self(bytes, extension, dependencies)?;
-        Ok(Box::new(asset))
+impl<L: Loader> DynLoader for L {
+    fn load(&self, bytes: &[u8], path: &PathParts, dependencies: Dependencies) -> Box<dyn Any> {
+        let asset_result = self.load(bytes, path, dependencies);
+        Box::new(asset_result)
     }
 }
+
+// impl<F, A> DynLoader for F
+// where
+//     F: Fn(&[u8], &PathParts, Dependencies) -> anyhow::Result<A> + Send + Sync + 'static,
+//     A: Asset,
+// {
+//     fn load(&self, bytes: &[u8], path: &PathParts, dependencies: Dependencies) -> Box<dyn Any> {
+//         let asset_result = self(bytes, path, dependencies);
+//         Box::new(asset_result)
+//     }
+// }
 
 /// Allows for a [`Loader`] to load other assets that the resulting asset is dependent on.
 pub struct Dependencies(pub(crate) AssetManager);

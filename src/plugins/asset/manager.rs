@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::sync::{Arc, RwLock};
 use derive_more::{Error, Display};
 use crate::{Handle, Protocol, PathParts, Asset, Dependencies, DynLoader, Loader, DynHandle, HashMap};
@@ -57,7 +58,7 @@ impl AssetManager {
             (handle, protocol, path_parts, dyn_loader)
         };
 
-        // Handle handle in the background.
+        // Complete handle in the background.
         let t_handle = handle.clone();
         let dependencies = Dependencies(self.clone());
         std::thread::spawn(move || {
@@ -69,23 +70,23 @@ impl AssetManager {
                     return;
                 },
             };
-            let dyn_asset = match dyn_loader.load(&bytes, &path_parts.extension, dependencies) {
-                Ok(dyn_asset) => dyn_asset,
-                Err(err) => {
-                    log::error!("Loader failed on {}: {}", path_parts, err);
-                    t_handle.fail();
-                    return;
-                },
-            };
-            let asset = match dyn_asset.downcast::<A>() {
-                Ok(asset) => asset,
+            let dyn_asset_result = dyn_loader.load(&bytes, &path_parts, dependencies);
+            let asset_result = match dyn_asset_result.downcast::<anyhow::Result<A>>() {
+                Ok(asset_result) => asset_result,
                 Err(_) => {
                     log::error!("Incorrect asset type for {}", path_parts);
                     t_handle.fail();
                     return;
                 },
             };
-            t_handle.finish(*asset);
+            let asset = match *asset_result {
+                Ok(asset) => asset,
+                Err(err) => {
+                    log::error!("{err}");
+                    return;
+                },
+            };
+            t_handle.finish(asset);
         });
         return Ok(handle);
     }
@@ -113,13 +114,8 @@ impl AssetManager {
 
     pub fn add_loader<L: Loader>(&self, loader: L) {
         let mut store = self.0.write().unwrap();
-        let inner_loader = move |bytes: &[u8], extension: &str, dependencies: Dependencies| -> anyhow::Result<Box<dyn Asset>> {
-            let asset = loader.load(bytes, extension, dependencies)?;
-            let b: Box<dyn Asset> = Box::new(asset);
-            Ok(b)
-        };
         let loader_idx = store.loaders.len();
-        store.loaders.push(Arc::new(inner_loader));
+        store.loaders.push(Arc::new(loader));
         for extension in L::EXTENSIONS {
             store.extensions_to_loaders.insert(extension.to_lowercase(), loader_idx);
         }

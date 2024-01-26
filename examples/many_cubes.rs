@@ -7,7 +7,6 @@ use rand::{SeedableRng, Rng};
 use rand::rngs::SmallRng;
 
 fn main() {
-    env_logger::init();
     let mut builder = App::builder();
     builder
         .plugin(EnginePlugin::default())
@@ -58,7 +57,7 @@ fn handle_start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
     ));
 
     // Loads texture
-    let texture: Handle<Texture> = assets.load("wobbuffet.png");
+    let _texture: Handle<Texture> = assets.load("wobbuffet.png");
     
     // Creates material
     let material = g3d::Material::from(Color::BLUE);

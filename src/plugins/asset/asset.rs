@@ -5,7 +5,7 @@ use crate::HandleStatus;
 /**
  * Shareable resource like an image, animation, sound etc.
  */
-pub trait Asset: Any + Send + Sync {
+pub trait Asset: Any + Send + Sync + 'static {
     /**
      * The merged [`HandleStatus`] of all dependencies, if any.
      * If at least one failed, status is [`HandleStatus::Failed`].
