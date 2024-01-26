@@ -6,6 +6,7 @@ use winit::event::{DeviceEvent, ElementState, Event, MouseScrollDelta, WindowEve
 use winit::event_loop::{EventLoop, EventLoopBuilder, EventLoopWindowTarget};
 use winit::keyboard::PhysicalKey;
 use winit::monitor::{MonitorHandle, VideoMode};
+use winit::platform::wayland::EventLoopWindowTargetExtWayland;
 use winit::window::{CursorGrabMode, Fullscreen, Window as WinitWindow, WindowBuilder};
 use crate::{App, AppBuilder, AppRunner, Cursor, GraphicsState, Keyboard, Plugin, WindowRequest, WindowRequests};
 
@@ -20,7 +21,7 @@ impl Default for WindowPlugin {
     fn default() -> Self {
         Self {
             window_width: 512,
-            window_height: 512
+            window_height: 512,
         }
     }
 }
@@ -31,7 +32,7 @@ impl Plugin for WindowPlugin {
         let window = WindowBuilder::new()
             .with_inner_size(PhysicalSize::new(self.window_width, self.window_height))
             .build(&event_loop).unwrap();
-        let current_monitor = window.current_monitor().expect("Failed to get current monitor");
+        let current_monitor = window.current_monitor();
         let mut inner_window = Window::new(current_monitor);
         for monitor in window.available_monitors() {
             for video_mode in monitor.video_modes() {
@@ -85,18 +86,18 @@ impl AppRunner for WindowRunner {
 /// Window domain
 pub struct Window {
     /// Current fullscreen state
-    pub fullscreen: Option<Fullscreen>,
+    pub(crate) fullscreen: Option<Fullscreen>,
     /// All video modes supported across all monitors.
-    pub video_modes: Vec<(MonitorHandle, VideoMode)>,
+    pub(crate) video_modes: Vec<(MonitorHandle, VideoMode)>,
     /// Monitor this window resides on.
-    pub current_monitor: MonitorHandle,
+    pub(crate) current_monitor: Option<MonitorHandle>,
     /// Size of the window's inner content
     pub(crate) size: Vec2,
 }
 
 impl Window {
 
-    pub(crate) fn new(current_monitor: MonitorHandle) -> Self {
+    pub(crate) fn new(current_monitor: Option<MonitorHandle>) -> Self {
         Self {
             fullscreen: None,
             video_modes: Vec::new(),
@@ -119,11 +120,15 @@ impl Window {
         self.video_modes
             .iter()
             .filter_map(|(handle, mode)| {
-                if handle != &self.current_monitor {
+                if Some(handle) != self.current_monitor.as_ref() {
                     return None;
                 }
                 Some(mode)
             })
+    }
+
+    pub fn current_monitor(&self) -> Option<&MonitorHandle> {
+        self.current_monitor.as_ref()
     }
 
     pub fn size(&self) -> Vec2 {
@@ -176,8 +181,8 @@ fn handle_window_event(
             }
         }
         WindowEvent::RedrawRequested => {
-            run_game_logic(app, last_update, window, target);   // Game logic
-            window.request_redraw();                            // Submits request to render next frame
+            run_game_logic(app, last_update, window, target);
+            window.request_redraw();
         },
         WindowEvent::CloseRequested => target.exit(),
         _ => {}
@@ -198,7 +203,7 @@ fn run_game_logic<'a>(
     app: &'a mut App,
     last_update: &mut Option<SystemTime>,
     window: &WinitWindow,
-    target: &EventLoopWindowTarget<()>,
+    target: &EventLoopWindowTarget<()>
 ) {
     // Computes delta since last frame.
     let now = SystemTime::now();
@@ -211,10 +216,8 @@ fn run_game_logic<'a>(
     // Updates window's current monitor
     {
         let mut inner_window = app.game.get::<&mut Window>();
-        let current_monitor = window.current_monitor().expect("Could not acquire window's current monitor");
-        if inner_window.current_monitor != current_monitor {
-            inner_window.current_monitor = current_monitor;
-        }
+        let current_monitor = window.current_monitor();
+        inner_window.current_monitor = current_monitor;
     }
 
     // Runs logic and handles
@@ -262,10 +265,15 @@ fn run_game_logic<'a>(
             },
             WindowRequest::SetFullscreen(fullscreen) => {
                 let mut inner_window = app.game.get::<&mut Window>();
+                let exclusive_fullscreen_supported = !target.is_wayland();
+                let fullscreen = match (fullscreen, exclusive_fullscreen_supported) {
+                    (Some(Fullscreen::Exclusive(_)), false)  => Some(Fullscreen::Borderless(window.current_monitor())),
+                    (fullscreen, _) => fullscreen,
+                };
+                log::debug!("Settingn fullscreen: {fullscreen:?}");
                 window.set_fullscreen(fullscreen.clone());
                 inner_window.fullscreen = fullscreen;
-            },
-            
+            }, 
         }
     }
 }
