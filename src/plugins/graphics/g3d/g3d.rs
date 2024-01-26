@@ -6,7 +6,7 @@ use tracing::instrument;
 use derive_more::From;
 use wgpu::{RenderPass, Device, Queue, RenderPipeline, BufferUsages, Buffer, BufferDescriptor, RenderPipelineDescriptor, PipelineLayoutDescriptor, VertexState, PrimitiveState, PrimitiveTopology, FrontFace, PolygonMode, FragmentState, TextureFormat, ColorTargetState, BlendState, ColorWrites, ShaderModuleDescriptor, ShaderSource, VertexBufferLayout, VertexStepMode, VertexAttribute, VertexFormat, DepthStencilState, CompareFunction, StencilState, DepthBiasState};
 use crate::math::{lerp_matrices, Frustum, Sphere, Transform, Volume, AABB};
-use crate::{reserve_buffer, Handle, HandleId, HasId, InterpolationMode, NodeId, Scene, ShaderPreprocessor, Slot};
+use crate::{reserve_buffer, Handle, HandleId, HasId, InterpolationMode, NodeId, Rect, Scene, ShaderPreprocessor, Slot, URect};
 use crate::g3d::{GpuMaterial, GpuMesh, MeshVariant, MaterialVariant, Camera, CameraTarget};
 
 const INSTANCE_SLOT: u32 = 0;
@@ -129,6 +129,7 @@ impl G3D {
                 renderable_count += 1;
             }
             jobs.push(RenderJob {
+                camera: flat_cam,
                 instance_batches: instance_batches.into_values().collect(),
             });
         }
@@ -155,6 +156,13 @@ impl G3D {
     fn render_job<'s: 'r, 'r>(&'s self, job: RenderJob<'r>, pass: &mut RenderPass<'r>) {
         let mut buffer_offset = 0;
         let mut instance_bytes = Vec::new();
+
+        if let Some(vp) = job.camera.viewport {
+            let sc = URect::from(vp);
+            pass.set_viewport(vp.origin.x, vp.origin.y, vp.size.x, vp.size.y, 0.0, 1.0);
+            pass.set_scissor_rect(sc.origin.x, sc.origin.y, sc.size.x, sc.size.y);
+        }
+
         for instance_batch in job.instance_batches {
 
             // Collects instance bytes for this batch
@@ -206,6 +214,7 @@ pub(crate) fn flatten_scene<'a>(scene: &'a Scene<Renderable>, t: f32) -> FlatSce
                 global_transform,
                 _target: &camera.target,
                 projection: lerp_matrices(camera.previous_projection, camera.projection, t),
+                viewport: camera.viewport,
             }),
             RenderableKind::Empty => {},
         }
@@ -225,6 +234,7 @@ pub struct RenderJobs<'a> {
 /// This is necessary in order for the render pass to have stable pointers for its lifetime.
 /// A RenderJob must outlive the render pass that uses it.
 struct RenderJob<'a> {
+    camera: FlatCamera<'a>,
     instance_batches: Vec<MatMeshInstances<'a>>,
 }
 
@@ -403,6 +413,7 @@ pub struct FlatCamera<'a> {
     _target: &'a CameraTarget,
     projection: Mat4,
     global_transform: Mat4,
+    viewport: Option<Rect>,
 }
 
 /// Used to select a pipeline from a cache.

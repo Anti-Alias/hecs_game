@@ -1,6 +1,6 @@
 use std::f32::consts::PI;
 use glam::Mat4;
-use crate::InterpolationMode;
+use crate::{InterpolationMode, Rect};
 
 /**
  * Graphical camera which controls what can be seen and from what perspective.
@@ -9,6 +9,7 @@ pub struct Camera {
     pub target: CameraTarget,
     pub(crate) projection: Mat4,
     pub(crate) previous_projection: Mat4,
+    pub(crate) viewport: Option<Rect>,
     pub interpolation_mode: InterpolationMode,
 }
 
@@ -19,6 +20,7 @@ impl Default for Camera {
             projection: Mat4::IDENTITY,
             previous_projection: Mat4::IDENTITY,
             interpolation_mode: InterpolationMode::Skip,
+            viewport: None,
         }
     }
 }

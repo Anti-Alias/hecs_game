@@ -49,46 +49,47 @@ impl App {
     pub fn tick_duration(&self) -> Duration { self.tick_duration }
 
     /**
-     * Runs all per-frame [`Stage`]s.
-     * If enough time has accumulated, each per-tick [`Stage`]s as well.
-     * Good for client applications.
+     * Advances the game logic by a frame.
+     * Runs all per-frame stages.
+     * Runs all per-tick stages if enough time has accumulated.
      */
     #[instrument(skip(self))]
     pub fn run_frame(&mut self, delta: Duration) {
+        
+        // Determines how many times to run per-tick stages
         self.tick_accum += delta;
-        self.run_tick();
-        self.run_render(delta);
-    }
+        let mut num_ticks = 0;
+        while self.tick_accum >= self.tick_duration {
+            self.tick_accum -= self.tick_duration;
+            num_ticks += 1;
+        }
+        let partial_ticks = self.tick_accum.as_secs_f32() / self.tick_duration.as_secs_f32();
 
-    fn run_tick(&mut self) {
-        let is_tick = self.tick_accum >= self.tick_duration;
+        // Fires StartEvent if this is the first tick
+        let is_tick = num_ticks > 0;
         if is_tick && self.tick == 1 {
             self.event_queue.push_back(DynEvent::new(StartEvent));
         }
-        while self.tick_accum >= self.tick_duration {
-            self.run_stage(Stage::PreUpdate, self.tick_duration, 1.0);
-            self.run_stage(Stage::Update, self.tick_duration, 1.0);
-            self.run_stage(Stage::UpdatePhysics, self.tick_duration, 1.0);
-            self.run_stage(Stage::PostUpdate, self.tick_duration, 1.0);
-            self.tick_accum -= self.tick_duration;
+
+        // Runs per-tick stages
+        for _ in 0..num_ticks {
+            self.run_stage(Stage::PreUpdate, self.tick_duration, true, partial_ticks);
+            self.run_stage(Stage::Update, self.tick_duration, true, partial_ticks);
+            self.run_stage(Stage::UpdatePhysics, self.tick_duration, true, partial_ticks);
+            self.run_stage(Stage::PostUpdate, self.tick_duration, true, partial_ticks);
+            self.run_stage(Stage::Cleanup, self.tick_duration, true, partial_ticks);
             self.tick += 1; 
         }
-        if is_tick {
-            self.run_stage(Stage::SyncGraphics, self.tick_duration, 1.0);
-            self.run_stage(Stage::SyncInput, self.tick_duration, 1.0);
-        }
-    }
 
-    fn run_render(&mut self, delta: Duration) {
-        let partial_ticks = self.tick_accum.as_secs_f32() / self.tick_duration.as_secs_f32();
-        self.run_stage(Stage::Render, delta, partial_ticks);
+        // Runs per-frame stages
+        self.run_stage(Stage::Render, delta, is_tick, partial_ticks);
     }
 
     /**
      * Runs all [`System`]s within a [`Stage`], then executes enqueued tasks.
      */
     #[instrument(skip(self))]
-    fn run_stage(&mut self, stage: Stage, delta: Duration, partial_ticks: f32) {
+    fn run_stage(&mut self, stage: Stage, delta: Duration, is_tick: bool, partial_ticks: f32) {
 
         // Runs systems for stage specified.
         if let Some(systems) = self.enabled_systems.get_mut(&stage) {
@@ -98,6 +99,7 @@ impl App {
                     app_requests: &mut self.app_requests,
                     event_queue: &mut self.event_queue,
                     delta,
+                    is_tick,
                     partial_ticks,
                 };
                 system(&mut self.game, ctx);
@@ -112,6 +114,7 @@ impl App {
                     app_requests: &mut self.app_requests,
                     event_queue: &mut self.event_queue,
                     delta,
+                    is_tick,
                     partial_ticks,
                 };
                 let finished = script.run(&mut self.game, ctx);
@@ -124,7 +127,7 @@ impl App {
             match app_request {
                 AppRequest::EnableSystem(system)            => self.enable_system(system),
                 AppRequest::DisableSystem(system)           => self.disable_system(system),
-                AppRequest::StartScript { stage, script }   => self.run_script(stage, script),
+                AppRequest::StartScript { stage, script }   => self.start_script(stage, script),
                 AppRequest::Quit                            => self.quit_requested = true,
             }
         }
@@ -142,6 +145,7 @@ impl App {
                 app_requests: &mut self.app_requests,
                 event_queue: &mut self.event_queue,
                 delta,
+                is_tick,
                 partial_ticks,
             };
             while let Some(event) = event_queue.pop_front() {
@@ -178,7 +182,7 @@ impl App {
         }
     }
 
-    fn run_script(&mut self, stage: Stage, script: Script) {
+    fn start_script(&mut self, stage: Stage, script: Script) {
         self.scripts
             .entry(stage)
             .or_default()
@@ -289,6 +293,7 @@ pub struct RunContext<'a> {
     app_requests: &'a mut VecDeque<AppRequest>,
     event_queue: &'a mut VecDeque<DynEvent>,
     delta: Duration,
+    is_tick: bool,
     partial_ticks: f32,
 }
 
@@ -306,6 +311,10 @@ impl<'a> RunContext<'a> {
      */
     pub fn delta_secs(&self) -> f32 {
         self.delta.as_secs_f32()
+    }
+
+    pub fn is_tick(&self) -> bool {
+        self.is_tick
     }
 
     pub fn partial_ticks(&self) -> f32 {
@@ -365,10 +374,6 @@ pub(crate) struct SystemMeta {
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub enum Stage {
     /// Per tick.
-    /// Reads input devices (mouse, controllers etc).
-    /// Stores those inputs into domain(s) for future reading.
-    SyncInput,
-    /// Per tick.
     /// Decision-making stage.
     /// Maps inputs to "decisions".
     /// Runs AI which emit "decisions".
@@ -384,8 +389,10 @@ pub enum Stage {
     /// Runs reaction-code based on the outcomes of Upate and UpdatePhysics.
     /// IE: Hitbox / hurtbox.
     PostUpdate,
-    /// Syncs current graphical state with current game state.
-    SyncGraphics,
+    /// Per tick.
+    /// Runs reaction-code based on the outcomes of Upate and UpdatePhysics.
+    /// IE: Hitbox / hurtbox.
+    Cleanup,
     /// Per frame.
     /// Updates animations and renders.
     Render,

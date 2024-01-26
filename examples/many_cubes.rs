@@ -1,7 +1,7 @@
 use std::f32::consts::TAU;
 use glam::{Vec3, Quat};
 use hecs_game::math::Transform;
-use hecs_game::{g3d, App, AppBuilder, Color, EnginePlugin, Flycam, FlycamPlugin, Game, GraphicsState, Handle, WindowRequests, PerspectiveProjector, Projection, RunContext, Scene, Stage, StartEvent};
+use hecs_game::{g3d, App, AppBuilder, Camera, CameraController, Color, EnginePlugin, FlycamMode, FlycamPlugin, Game, GraphicsState, Handle, OrthographicProjector, PerspectiveProjector, RunContext, ScalingMode, Scene, Stage, StartEvent};
 use hecs::World;
 use rand::{SeedableRng, Rng};
 use rand::rngs::SmallRng;
@@ -9,7 +9,7 @@ use rand::rngs::SmallRng;
 fn main() {
     let mut builder = App::builder();
     builder
-        .plugin(EnginePlugin)
+        .plugin(EnginePlugin::default())
         .plugin(FlycamPlugin)
         .plugin(plugin);
     builder.run();
@@ -27,29 +27,32 @@ fn handle_start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
     // Extracts domains
     let mut world       = game.get::<&mut World>();
     let mut scene       = game.get::<&mut Scene<g3d::Renderable>>();
-    let mut requests    = game.get::<&mut WindowRequests>();
     let state           = game.get::<&GraphicsState>();
 
-    // Grabs + cursor
-    requests.set_cursor_grab(true);
-    requests.set_cursor_visible(false);
-
-    // Spawns camera
+    // Spawns flycam
     let cam_tracker = scene.insert(g3d::Renderable::camera());
     let cam_transform = Transform::default().with_xyz(0.0, 0.0, 1.0);
     world.spawn((
         cam_tracker,
         cam_transform,
-        // OrthographicProjector {
-        //     far: 1000.0,
-        //     ..Default::default()
-        // },
-        PerspectiveProjector {
-            aspect_ratio: 1.0,
+        Camera::default(),
+        CameraController {
+            perspective: PerspectiveProjector {
+                aspect_ratio: 1.0,
+                near: 0.1,
+                far: 1000.0,
+                ..Default::default()
+            },
+            orthographic: OrthographicProjector {
+                near: 0.0,
+                far: 1000.0,
+                ..Default::default()
+            },
+            t: 1.0,
+            scaling_mode: ScalingMode::ScaleSmallest,
+            flycam_mode: FlycamMode::Disabled,
             ..Default::default()
         },
-        Projection::default(),
-        Flycam::default(),
     ));
     
     // Creates material

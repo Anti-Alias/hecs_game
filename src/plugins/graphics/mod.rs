@@ -19,7 +19,7 @@ pub use buffer::*;
 use tracing::instrument;
 use wgpu::{Color as WgpuColor, CommandEncoderDescriptor, LoadOp, Operations, RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPassDescriptor, StoreOp, SurfaceTexture};
 use crate::math::Transform;
-use crate::{RunContext, Game, AppBuilder, Stage, Plugin, Tracker, Projection};
+use crate::{RunContext, Game, AppBuilder, Stage, Plugin, Tracker, Camera};
 
 
 /// Adds primitive [`GraphicsState`].
@@ -35,19 +35,11 @@ impl Plugin for GraphicsPlugin {
                 let queue = state.queue.clone();
                 g3d::G3D::new(device, queue)
             });
-        builder
-            .system(Stage::SyncGraphics, sync_graphics)
-            .system(Stage::Render, render_3d);
+        builder.system(Stage::Render, render_3d);
     }
 }
 
-fn sync_graphics(game: &mut Game, _ctx: RunContext) {
-
-    let mut g3d_scene = game.get::<&mut Scene<g3d::Renderable>>();
-    let mut world = game.get::<&mut World>();
-    let g3d_scene = &mut g3d_scene.graph;
-    let world = &mut *world;
-    
+fn sync_graphics(world: &mut World, g3d_scene: &mut SceneGraph<g3d::Renderable>) {
     // Syncs transforms
     let renderable_query = world.query_mut::<(&Transform, &Tracker<g3d::Renderable>)>();
     rayon::scope(|s| {
@@ -64,32 +56,42 @@ fn sync_graphics(game: &mut Game, _ctx: RunContext) {
         }
     });
 
-    // Syncs projections of cameras
-    let camera_query = world.query_mut::<(&Projection, &Tracker<g3d::Renderable>)>();
-    for (_, (projection, tracker)) in camera_query {
+    // Syncs cameras
+    let camera_query = world.query_mut::<(&Camera, &Tracker<g3d::Renderable>)>();
+    for (_, (camera, tracker)) in camera_query {
         let Some(renderable) = g3d_scene.get_mut(tracker.id()) else { continue };
-        let Some(camera) = renderable.kind.as_camera_mut() else { continue };
+        let Some(render_cam) = renderable.kind.as_camera_mut() else { continue };
+        render_cam.viewport = camera.viewport;
         match renderable.interpolation_mode {
             InterpolationMode::Interpolate => {
-                camera.previous_projection = camera.projection;
-                camera.projection = projection.0;
+                render_cam.previous_projection = render_cam.projection;
+                render_cam.projection = camera.projection;
             },
             InterpolationMode::Skip => {
-                camera.previous_projection = projection.0;
-                camera.projection = projection.0;
+                render_cam.previous_projection = camera.projection;
+                render_cam.projection = camera.projection;
+                renderable.interpolation_mode = InterpolationMode::Interpolate;
             },
             InterpolationMode::None => {
-                camera.previous_projection = projection.0;
-                camera.projection = projection.0;
+                render_cam.previous_projection = camera.projection;
+                render_cam.projection = camera.projection;
             },
         }
     }
 }
 
 fn render_3d(game: &mut Game, ctx: RunContext) {
+
+    let mut world = game.get::<&mut World>();
     let graphics_state = game.get::<&GraphicsState>();
-    let mut g3d_scene = game.get::<&mut Scene<g3d::Renderable>>();
     let mut g3d = game.get::<&mut g3d::G3D>();
+    let mut g3d_scene = game.get::<&mut Scene<g3d::Renderable>>();
+
+    if ctx.is_tick() {
+        let g3d_scene = &mut g3d_scene.graph;
+        sync_graphics(&mut world, g3d_scene);
+    }
+    
     let surface_tex = match graphics_state.surface().get_current_texture() {
         Ok(surface_tex) => surface_tex,
         Err(err) => {

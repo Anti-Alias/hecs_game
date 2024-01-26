@@ -8,12 +8,28 @@ use crate::{AppBuilder, AssetPlugin, EcsPlugin, Game, GraphicsPlugin, InputPlugi
 /**
  * Main game engine plugin.
  */
-pub struct EnginePlugin;
+pub struct EnginePlugin {
+    pub window_width: u32,
+    pub window_height: u32,
+}
+
+impl Default for EnginePlugin {
+    fn default() -> Self {
+        Self {
+            window_width: 512,
+            window_height: 512
+        }
+    }
+}
+
 impl Plugin for EnginePlugin {
     fn install(&mut self, builder: &mut AppBuilder) {
         builder
             .plugin(InputPlugin)
-            .plugin(WindowPlugin::default())
+            .plugin(WindowPlugin {
+                window_width: self.window_width,
+                window_height: self.window_height,
+            })
             .plugin(EcsPlugin)
             .plugin(AssetPlugin)
             .plugin(GraphicsPlugin)
@@ -26,17 +42,17 @@ fn toggle_fullscreen(game: &mut Game, _ctx: RunContext) {
     let keyboard = game.get::<&Keyboard>();
     let window = game.get::<&Window>();
     let mut requests = game.get::<&mut WindowRequests>();
-    
     if keyboard.is_pressed(KeyCode::AltLeft) && keyboard.is_just_pressed(KeyCode::Enter) {
         match window.fullscreen() {
             Some(_) => requests.set_fullscreen(None),
             None => {
                 let video_mode = select_fullscreen_mode(&window.current_monitor, window.current_video_modes());
-                let Some(video_mode) = video_mode else {
+                if let Some(video_mode) = video_mode {
+                    requests.set_fullscreen(Some(Fullscreen::Exclusive(video_mode.clone())))
+                }
+                else {
                     log::error!("Failed to select video mode");
-                    return;
-                };
-                requests.set_fullscreen(Some(Fullscreen::Exclusive(video_mode.clone())))
+                }
             },
         }
     }

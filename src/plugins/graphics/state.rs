@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use glam::Vec2;
 use winit::window::Window;
 use wgpu::*;
 
@@ -55,15 +54,6 @@ impl GraphicsState {
     /// Current texture view to render on.
     pub fn surface(&self) -> &Surface {
         &self.surface
-    }
-
-    /// Convenience method for getting the surface's size in pixels.
-    pub fn size(&self) -> Vec2 {
-        Vec2::new(self.surface_config.width as f32, self.surface_config.height as f32)
-    }
-
-    pub fn center(&self) -> Vec2 {
-        self.size() * 0.5
     }
 
     /// Convenience method for getting the surface's aspect ratio (height / width).

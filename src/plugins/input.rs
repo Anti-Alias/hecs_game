@@ -12,7 +12,7 @@ impl Plugin for InputPlugin {
             .add(WindowRequests::default())
             .add(Keyboard::default())
             .add(Cursor::default());
-        builder.system(Stage::SyncInput, sync_inputs);
+        builder.system(Stage::Cleanup, sync_inputs);
     }
 }
 
@@ -24,6 +24,7 @@ pub struct Keyboard {
 pub struct Cursor {
     pub(crate) position: Vec2,
     pub(crate) movement: Vec2,
+    pub(crate) scroll: Vec2,
     pub(crate) is_grabbed: bool,
     pub(crate) is_visible: bool,
 }
@@ -46,6 +47,15 @@ impl Cursor {
     pub fn is_visible(&self) -> bool {
         self.is_visible
     }
+
+    pub fn scroll(&self) -> Vec2 {
+        self.scroll
+    }
+
+    pub(crate) fn sync(&mut self) {
+        self.movement = Vec2::ZERO;
+        self.scroll = Vec2::ZERO;
+    }
 }
 
 impl Default for Cursor {
@@ -53,6 +63,7 @@ impl Default for Cursor {
         Self {
             position: Vec2::ZERO,
             movement: Vec2::ZERO,
+            scroll: Vec2::ZERO,
             is_grabbed: false,
             is_visible: true,
         }
@@ -99,7 +110,7 @@ impl Keyboard {
     /**
      * Sync previous button state with current button state.
     */
-    pub fn sync_previous_state(&mut self) {
+    pub fn sync(&mut self) {
         self.keys.sync_previous_state()
     }
 }
@@ -183,8 +194,8 @@ where
 fn sync_inputs(game: &mut Game, _ctx: RunContext) {
     let mut keyboard = game.get::<&mut Keyboard>();
     let mut cursor = game.get::<&mut Cursor>();
-    keyboard.sync_previous_state();
-    cursor.movement = Vec2::ZERO;
+    keyboard.sync();
+    cursor.sync();
 }
 
 /// Queue of requests to dispatch to the application's window.

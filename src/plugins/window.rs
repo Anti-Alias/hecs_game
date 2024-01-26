@@ -1,8 +1,8 @@
 use std::time::{SystemTime, Duration};
 use glam::Vec2;
 use wgpu::TextureFormat;
-use winit::dpi::PhysicalPosition;
-use winit::event::{DeviceEvent, ElementState, Event, WindowEvent};
+use winit::dpi::{PhysicalPosition, PhysicalSize};
+use winit::event::{DeviceEvent, ElementState, Event, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{EventLoop, EventLoopBuilder, EventLoopWindowTarget};
 use winit::keyboard::PhysicalKey;
 use winit::monitor::{MonitorHandle, VideoMode};
@@ -12,15 +12,13 @@ use crate::{App, AppBuilder, AppRunner, Cursor, GraphicsState, Keyboard, Plugin,
 /// Opens a window and injects a [`GraphicsState`] for use in a graphics engine.
 /// Adds a runner that is synced with the framerate.
 pub struct WindowPlugin {
-    frame_rate: u32,
-    window_width: u32,
-    window_height: u32,
+    pub window_width: u32,
+    pub window_height: u32,
 }
 
 impl Default for WindowPlugin {
     fn default() -> Self {
         Self {
-            frame_rate: 60,
             window_width: 512,
             window_height: 512
         }
@@ -30,7 +28,9 @@ impl Default for WindowPlugin {
 impl Plugin for WindowPlugin {
     fn install(&mut self, builder: &mut AppBuilder) {
         let event_loop = EventLoopBuilder::<()>::with_user_event().build().unwrap();
-        let window = WindowBuilder::new().build(&event_loop).unwrap();
+        let window = WindowBuilder::new()
+            .with_inner_size(PhysicalSize::new(self.window_width, self.window_height))
+            .build(&event_loop).unwrap();
         let current_monitor = window.current_monitor().expect("Failed to get current monitor");
         let mut inner_window = Window::new(current_monitor);
         for monitor in window.available_monitors() {
@@ -38,14 +38,10 @@ impl Plugin for WindowPlugin {
                 inner_window.video_modes.push((monitor.clone(), video_mode));
             }
         }
-
         builder.game()
             .add(GraphicsState::new(&window, TextureFormat::Depth24Plus))
             .add(inner_window);
         builder.runner(WindowRunner {
-            frame_rate: self.frame_rate,
-            window_width: self.window_width,
-            window_height: self.window_height,
             event_loop: Some(event_loop),
             window,
         });
@@ -57,27 +53,8 @@ impl Plugin for WindowPlugin {
  * For rendering applications on Windows, Linux and OSX.
  */
 pub struct WindowRunner {
-    frame_rate: u32,
-    window_width: u32,
-    window_height: u32,
     event_loop: Option<EventLoop::<()>>,
     window: WinitWindow,
-}
-
-impl WindowRunner {
-    
-    /// Desired frame rate when in exclusive fullscreen mode.
-    pub fn with_frame_rate(mut self, frame_rate: u32) -> Self {
-        self.frame_rate = frame_rate;
-        self
-    }
-
-    /// Default window size to use when in windowed mode.
-    pub fn with_window_size(mut self, width: u32, height: u32) -> Self {
-        self.window_width = width;
-        self.window_height = height;
-        self
-    }
 }
 
 impl AppRunner for WindowRunner {
@@ -109,17 +86,22 @@ impl AppRunner for WindowRunner {
 pub struct Window {
     /// Current fullscreen state
     pub fullscreen: Option<Fullscreen>,
+    /// All video modes supported across all monitors.
     pub video_modes: Vec<(MonitorHandle, VideoMode)>,
+    /// Monitor this window resides on.
     pub current_monitor: MonitorHandle,
+    /// Size of the window's inner content
+    pub(crate) size: Vec2,
 }
 
 impl Window {
 
-    pub fn new(current_monitor: MonitorHandle) -> Self {
+    pub(crate) fn new(current_monitor: MonitorHandle) -> Self {
         Self {
             fullscreen: None,
             video_modes: Vec::new(),
             current_monitor,
+            size: Vec2::ZERO,
         }
     }
 
@@ -143,6 +125,10 @@ impl Window {
                 Some(mode)
             })
     }
+
+    pub fn size(&self) -> Vec2 {
+        self.size
+    }
 }
 
 fn handle_window_event(
@@ -155,6 +141,8 @@ fn handle_window_event(
 ) {
     match event {
         WindowEvent::Resized(size) => {
+            let mut inner_window = app.game.get::<&mut Window>();
+            inner_window.size = Vec2::new(size.width as f32, size.height as f32);
             app.game
                 .get::<&mut GraphicsState>()
                 .resize(size.width, size.height)
@@ -174,6 +162,19 @@ fn handle_window_event(
             let mut cursor = app.game.get::<&mut Cursor>();
             cursor.position = Vec2::new(position.x as f32, position.y as f32);
         },
+        WindowEvent::MouseWheel { delta, .. } => {
+            let mut cursor = app.game.get::<&mut Cursor>();
+            match delta {
+                MouseScrollDelta::LineDelta(dx, dy) => {
+                    cursor.scroll.x += dx;
+                    cursor.scroll.y += dy;
+                },
+                MouseScrollDelta::PixelDelta(position) => {
+                    cursor.scroll.x += position.x as f32;
+                    cursor.scroll.y += position.y as f32;
+                },
+            }
+        }
         WindowEvent::RedrawRequested => {
             run_game_logic(app, last_update, window, target);   // Game logic
             window.request_redraw();                            // Submits request to render next frame
