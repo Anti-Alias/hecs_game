@@ -11,16 +11,19 @@ use crate::{App, AppBuilder, AppRunner, Cursor, GraphicsState, Keyboard, Plugin,
 
 /// Opens a window and injects a [`GraphicsState`] for use in a graphics engine.
 /// Adds a runner that is synced with the framerate.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct WindowPlugin {
     pub window_width: u32,
     pub window_height: u32,
+    pub features: WindowFeatures,
 }
 
 impl Default for WindowPlugin {
     fn default() -> Self {
         Self {
             window_width: 512,
-            window_height: 512
+            window_height: 512,
+            features: WindowFeatures::default(),
         }
     }
 }
@@ -31,7 +34,7 @@ impl Plugin for WindowPlugin {
         let window = WindowBuilder::new()
             .with_inner_size(PhysicalSize::new(self.window_width, self.window_height))
             .build(&event_loop).unwrap();
-        let current_monitor = window.current_monitor().expect("Failed to get current monitor");
+        let current_monitor = window.current_monitor();
         let mut inner_window = Window::new(current_monitor);
         for monitor in window.available_monitors() {
             for video_mode in monitor.video_modes() {
@@ -44,7 +47,26 @@ impl Plugin for WindowPlugin {
         builder.runner(WindowRunner {
             event_loop: Some(event_loop),
             window,
+            features: self.features,
         });
+    }
+}
+
+/// Optional features
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct WindowFeatures {
+    pub exclusive_fullscreen_supported: bool,
+}
+
+impl Default for WindowFeatures {
+    fn default() -> Self {
+        let exclusive_fullscreen_supported = match std::env::var("WAYLAND_DISPLAY") {
+            Ok(var) => var.is_empty(),
+            Err(_) => true,
+        };
+        Self {
+            exclusive_fullscreen_supported,
+        }
     }
 }
 
@@ -55,13 +77,13 @@ impl Plugin for WindowPlugin {
 pub struct WindowRunner {
     event_loop: Option<EventLoop::<()>>,
     window: WinitWindow,
+    features: WindowFeatures,
 }
 
 impl AppRunner for WindowRunner {
     fn run(&mut self, mut app: App) {
 
         let event_loop = self.event_loop.take().unwrap();
-        let window = &mut self.window;
 
         // Starts game loop
         let mut last_update: Option<SystemTime> = None;
@@ -69,10 +91,10 @@ impl AppRunner for WindowRunner {
             match event {
                 Event::WindowEvent { event, .. } => handle_window_event(
                     event,
-                    &window,
                     target,
                     &mut app,
-                    &window,
+                    &self.window,
+                    &self.features,
                     &mut last_update
                 ),
                 Event::DeviceEvent { event, .. } => handle_device_event(event, &mut app),
@@ -85,18 +107,18 @@ impl AppRunner for WindowRunner {
 /// Window domain
 pub struct Window {
     /// Current fullscreen state
-    pub fullscreen: Option<Fullscreen>,
+    pub(crate) fullscreen: Option<Fullscreen>,
     /// All video modes supported across all monitors.
-    pub video_modes: Vec<(MonitorHandle, VideoMode)>,
+    pub(crate) video_modes: Vec<(MonitorHandle, VideoMode)>,
     /// Monitor this window resides on.
-    pub current_monitor: MonitorHandle,
+    pub(crate) current_monitor: Option<MonitorHandle>,
     /// Size of the window's inner content
     pub(crate) size: Vec2,
 }
 
 impl Window {
 
-    pub(crate) fn new(current_monitor: MonitorHandle) -> Self {
+    pub(crate) fn new(current_monitor: Option<MonitorHandle>) -> Self {
         Self {
             fullscreen: None,
             video_modes: Vec::new(),
@@ -119,11 +141,15 @@ impl Window {
         self.video_modes
             .iter()
             .filter_map(|(handle, mode)| {
-                if handle != &self.current_monitor {
+                if Some(handle) != self.current_monitor.as_ref() {
                     return None;
                 }
                 Some(mode)
             })
+    }
+
+    pub fn current_monitor(&self) -> Option<&MonitorHandle> {
+        self.current_monitor.as_ref()
     }
 
     pub fn size(&self) -> Vec2 {
@@ -133,10 +159,10 @@ impl Window {
 
 fn handle_window_event(
     event: WindowEvent,
-    _window: &WinitWindow,
     target: &EventLoopWindowTarget<()>,
     app: &mut App,
     window: &WinitWindow,
+    features: &WindowFeatures,
     last_update: &mut Option<SystemTime>,
 ) {
     match event {
@@ -176,8 +202,8 @@ fn handle_window_event(
             }
         }
         WindowEvent::RedrawRequested => {
-            run_game_logic(app, last_update, window, target);   // Game logic
-            window.request_redraw();                            // Submits request to render next frame
+            run_game_logic(app, last_update, window, &features, target);
+            window.request_redraw();
         },
         WindowEvent::CloseRequested => target.exit(),
         _ => {}
@@ -198,7 +224,8 @@ fn run_game_logic<'a>(
     app: &'a mut App,
     last_update: &mut Option<SystemTime>,
     window: &WinitWindow,
-    target: &EventLoopWindowTarget<()>,
+    features: &WindowFeatures,
+    target: &EventLoopWindowTarget<()>
 ) {
     // Computes delta since last frame.
     let now = SystemTime::now();
@@ -211,10 +238,8 @@ fn run_game_logic<'a>(
     // Updates window's current monitor
     {
         let mut inner_window = app.game.get::<&mut Window>();
-        let current_monitor = window.current_monitor().expect("Could not acquire window's current monitor");
-        if inner_window.current_monitor != current_monitor {
-            inner_window.current_monitor = current_monitor;
-        }
+        let current_monitor = window.current_monitor();
+        inner_window.current_monitor = current_monitor;
     }
 
     // Runs logic and handles
@@ -262,10 +287,14 @@ fn run_game_logic<'a>(
             },
             WindowRequest::SetFullscreen(fullscreen) => {
                 let mut inner_window = app.game.get::<&mut Window>();
+                let fullscreen = match (fullscreen, features.exclusive_fullscreen_supported) {
+                    (Some(Fullscreen::Exclusive(_)), false)  => Some(Fullscreen::Borderless(window.current_monitor())),
+                    (fullscreen, _) => fullscreen,
+                };
+                log::debug!("Settingn fullscreen: {fullscreen:?}");
                 window.set_fullscreen(fullscreen.clone());
                 inner_window.fullscreen = fullscreen;
-            },
-            
+            }, 
         }
     }
 }

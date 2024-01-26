@@ -6,7 +6,6 @@ use crate::{Handle, Protocol, PathParts, Asset, Dependencies, DynLoader, Loader,
  * Central location for loading [`Asset`]s located in files.
  */
 pub struct AssetManager(Arc<RwLock<Store>>);
-
 impl Clone for AssetManager {
     fn clone(&self) -> Self {
         Self(self.0.clone())
