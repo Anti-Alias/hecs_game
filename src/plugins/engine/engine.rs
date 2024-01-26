@@ -44,9 +44,12 @@ fn toggle_fullscreen(game: &mut Game, _ctx: RunContext) {
     let mut requests = game.get::<&mut WindowRequests>();
     if keyboard.is_pressed(KeyCode::AltLeft) && keyboard.is_just_pressed(KeyCode::Enter) {
         match window.fullscreen() {
-            Some(_) => requests.set_fullscreen(None),
+            Some(_) => {
+                requests.set_fullscreen(None)
+            },
             None => {
-                let video_mode = select_fullscreen_mode(&window.current_monitor, window.current_video_modes());
+                let Some(current_monitor) = window.current_monitor() else { return };
+                let video_mode = select_fullscreen_mode(current_monitor, window.current_video_modes());
                 if let Some(video_mode) = video_mode {
                     requests.set_fullscreen(Some(Fullscreen::Exclusive(video_mode.clone())))
                 }
