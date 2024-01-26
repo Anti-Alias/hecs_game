@@ -24,6 +24,7 @@ impl Default for EnginePlugin {
 
 impl Plugin for EnginePlugin {
     fn install(&mut self, builder: &mut AppBuilder) {
+        env_logger::init();
         builder
             .plugin(InputPlugin)
             .plugin(WindowPlugin {

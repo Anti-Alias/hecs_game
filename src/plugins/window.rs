@@ -270,6 +270,7 @@ fn run_game_logic<'a>(
                     (Some(Fullscreen::Exclusive(_)), false)  => Some(Fullscreen::Borderless(window.current_monitor())),
                     (fullscreen, _) => fullscreen,
                 };
+                log::debug!("Settingn fullscreen: {fullscreen:?}");
                 window.set_fullscreen(fullscreen.clone());
                 inner_window.fullscreen = fullscreen;
             }, 
