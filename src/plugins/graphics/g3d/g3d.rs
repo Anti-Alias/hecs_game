@@ -7,7 +7,8 @@ use derive_more::From;
 use wgpu::{BlendState, Buffer, BufferDescriptor, BufferUsages, ColorTargetState, ColorWrites, CompareFunction, DepthBiasState, DepthStencilState, Device, Face, FragmentState, FrontFace, PipelineLayoutDescriptor, PolygonMode, PrimitiveState, PrimitiveTopology, Queue, RenderPass, RenderPipeline, RenderPipelineDescriptor, ShaderModuleDescriptor, ShaderSource, StencilState, TextureFormat, VertexAttribute, VertexBufferLayout, VertexFormat, VertexState, VertexStepMode};
 use crate::math::{lerp_matrices, Frustum, Sphere, Transform, Volume, AABB};
 use crate::{reserve_buffer, Handle, HandleId, HasId, InterpolationMode, NodeId, Rect, Scene, ShaderPreprocessor, Slot, URect};
-use crate::g3d::{GpuMaterial, GpuMesh, MeshVariant, MaterialVariant, Camera, CameraTarget};
+use crate::g3d::{GpuMaterial, GpuMesh, MeshKey, Camera, CameraTarget};
+use super::MaterialKey;
 
 const INSTANCE_SLOT: u32 = 0;
 const VERTEX_SLOT: u32 = 1;
@@ -112,10 +113,17 @@ impl G3D {
 
                 // Creates pipeline compatible with material and mesh.
                 // Does nothing if already cached.
-                let pipeline_key = PipelineKey(mesh.variant, material.variant);
+                let pipeline_key = PipelineKey(mesh.variant, material.key);
                 self.pipelines
                     .entry(pipeline_key)
-                    .or_insert_with(|| create_pipeline(&material, &mesh, texture_format, depth_format, &self.device));
+                    .or_insert_with(|| create_pipeline(
+                        &material,
+                        &mesh,
+                        material.key.cull_mode,
+                        texture_format,
+                        depth_format,
+                        &self.device
+                    ));
 
                 // Fetches instance batch for material and mesh.
                 // Creates it if it does not exist.
@@ -418,7 +426,7 @@ pub struct FlatCamera<'a> {
 
 /// Used to select a pipeline from a cache.
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
-struct PipelineKey(MeshVariant, MaterialVariant);
+struct PipelineKey(MeshKey, MaterialKey);
 impl identity_hash::IdentityHashable for PipelineKey {}
 
 /// Key used to collect material/meshes into instances
@@ -455,6 +463,7 @@ impl<'a> MatMeshInstances<'a> {
 fn create_pipeline(
     material: &GpuMaterial,
     mesh: &GpuMesh,
+    cull_mode: Option<Face>,
     texture_format: TextureFormat,
     depth_format: TextureFormat,
     device: &Device
@@ -502,7 +511,7 @@ fn create_pipeline(
             topology: PrimitiveTopology::TriangleList,
             strip_index_format: None,
             front_face: FrontFace::Ccw,
-            cull_mode: Some(Face::Back),
+            cull_mode,
             unclipped_depth: false,
             polygon_mode: PolygonMode::Fill,
             conservative: false,

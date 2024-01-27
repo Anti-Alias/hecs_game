@@ -6,24 +6,6 @@ use glam::{Vec3, Vec2};
 use bitflags::bitflags;
 use crate::{Color, ShaderPreprocessor};
 
-/// Similar to a [`VertexBufferLayout`], but attributes are stored in a Vec rather than a slice.
-/// Needed for generating layouts dynamically.
-#[derive(Default, Debug)]
-pub struct MeshLayout {
-    array_stride: u64,
-    attributes: Vec<VertexAttribute>,
-}
-
-impl MeshLayout {
-    pub fn as_vertex_layout(&self) -> VertexBufferLayout<'_> {
-        VertexBufferLayout {
-            array_stride: self.array_stride,
-            step_mode: VertexStepMode::Vertex,
-            attributes: &self.attributes,
-        }
-    }
-}
-
 /**
  * A 3D mesh.
 */
@@ -59,16 +41,16 @@ impl Mesh {
     /**
      * Computes the [`MeshVariant`].
      */
-    pub fn variant(&self) -> MeshVariant {
-        let mut variant = MeshVariant::NONE;
+    pub fn variant(&self) -> MeshKey {
+        let mut variant = MeshKey::NONE;
         if self.colors.is_some() {
-            variant |= MeshVariant::COLOR;
+            variant |= MeshKey::COLOR;
         }
         if self.normals.is_some() {
-            variant |= MeshVariant::NORMAL;
+            variant |= MeshKey::NORMAL;
         }
         if self.uvs.is_some() {
-            variant |= MeshVariant::UV;
+            variant |= MeshKey::UV;
         }
         variant
     }
@@ -172,7 +154,7 @@ bitflags! {
     /// These are flags that determine which vertex attributes are available in a given mesh.
     /// Used for selecting pipelines from a cache.
     #[derive(Copy, Clone, Eq, PartialEq, Default, Debug, Hash)]
-    pub struct MeshVariant: u8 {
+    pub struct MeshKey: u8 {
         const NONE      = 0b00000000;
         const COLOR     = 0b00000001;
         const NORMAL    = 0b00000010;
@@ -181,7 +163,7 @@ bitflags! {
     }
 }
 
-impl MeshVariant {
+impl MeshKey {
     /**
      * Gets mesh data necessary to build a pipeline.
      */
@@ -234,13 +216,31 @@ impl MeshVariant {
     }
 }
 
+/// Similar to a [`VertexBufferLayout`], but attributes are stored in a Vec rather than a slice.
+/// Needed for generating layouts dynamically.
+#[derive(Default, Debug)]
+pub struct MeshLayout {
+    array_stride: u64,
+    attributes: Vec<VertexAttribute>,
+}
+
+impl MeshLayout {
+    pub fn as_vertex_layout(&self) -> VertexBufferLayout<'_> {
+        VertexBufferLayout {
+            array_stride: self.array_stride,
+            step_mode: VertexStepMode::Vertex,
+            attributes: &self.attributes,
+        }
+    }
+}
+
 /// GPU representation of [`Mesh`].
 pub struct GpuMesh {
     pub(crate) vertices: Buffer,
     pub(crate) indices: Buffer,
     pub(crate) index_format: IndexFormat,
     pub(crate) num_indices: u32,
-    pub(crate) variant: MeshVariant,
+    pub(crate) variant: MeshKey,
 }
 
 impl GpuMesh {

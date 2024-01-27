@@ -5,6 +5,7 @@ use hecs_game::{g3d, App, AppBuilder, AssetManager, Camera, CameraController, Co
 use hecs::World;
 use rand::{SeedableRng, Rng};
 use rand::rngs::SmallRng;
+use wgpu::Face;
 
 fn main() {
     let mut builder = App::builder();
@@ -57,12 +58,17 @@ fn handle_start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
     ));
 
     // Loads texture
-    let _texture: Handle<Texture> = assets.load("wobbuffet.png");
+    let texture: Handle<Texture> = assets.load("wobbuffet.png");
     
     // Creates material
-    let material = g3d::Material::from(Color::BLUE);
+    let material = g3d::Material {
+        base_color: Color::BLUE,
+        base_color_texture: Some(texture),
+        cull_mode: Some(Face::Back),
+    };
     let material = g3d::GpuMaterial::from_material(&material, &state.device);
     let material = Handle::new(material);
+    
     // Creates blue mesh
     let blue_mesh: g3d::Mesh = g3d::Mesh::from(g3d::Cuboid {
         center: Vec3::new(0.0, 0.0, 0.0),
@@ -83,7 +89,7 @@ fn handle_start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
     
     // Spawns cubes
     let mut rng = SmallRng::seed_from_u64(48);
-    for _ in 0..1000 {
+    for _ in 0..10 {
 
         // Creates random transform
         let scale = 0.2 + rng.gen::<f32>() * 0.2;

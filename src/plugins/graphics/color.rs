@@ -1,5 +1,6 @@
 use bytemuck::{Pod, Zeroable};
 use crate::g3d::Material;
+use crate::{Texture, Handle};
 
 #[repr(C)]
 #[derive(Copy, Clone, PartialEq, Debug, Pod, Zeroable)]
@@ -37,6 +38,16 @@ impl From<Color> for Material {
     fn from(color: Color) -> Self {
         Material {
             base_color: color,
+            ..Default::default()
+        }
+    }
+}
+
+impl From<Handle<Texture>> for Material {
+    fn from(base_color_texture: Handle<Texture>) -> Self {
+        Material {
+            base_color_texture: Some(base_color_texture),
+            ..Default::default()
         }
     }
 }
