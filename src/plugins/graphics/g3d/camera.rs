@@ -62,8 +62,21 @@ impl Camera {
     }
 
     pub fn set_projection(&mut self, projection: Mat4) {
-        self.previous_projection = projection;
-        self.projection = projection;
+        match self.interpolation_mode {
+            InterpolationMode::Interpolate => {
+                self.previous_projection = self.projection;
+                self.projection = projection;
+            },
+            InterpolationMode::Skip => {
+                self.previous_projection = projection;
+                self.projection = projection;
+                self.interpolation_mode = InterpolationMode::Interpolate;
+            },
+            InterpolationMode::None => {
+                self.previous_projection = projection;
+                self.projection = projection;
+            },
+        }
     }
 
     pub fn with_interpolation_mode(mut self, interpolation_mode: InterpolationMode) -> Self {

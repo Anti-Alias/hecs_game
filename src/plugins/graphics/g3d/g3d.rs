@@ -108,14 +108,9 @@ impl G3D {
 
                 // Extracts material and mesh from renderable. Skips if not loaded.
                 let MatMesh(material_handle, mesh_handle) = flat_mat_mesh.mat_mesh;
-                let material = unsafe {
-                    let AssetState::Loaded(material) = materials.get_unchecked(material_handle) else { continue };
-                    material
-                };
-                let mesh = unsafe {
-                    let AssetState::Loaded(mesh) = meshes.get_unchecked(mesh_handle) else { continue };
-                    mesh
-                };
+                let AssetState::Loaded(material) = materials.get(material_handle) else { continue };
+                let AssetState::Loaded(mesh) = meshes.get(mesh_handle) else { continue };
+                
                 // Creates pipeline compatible with material and mesh.
                 // Does nothing if already cached.
                 let pipeline_key = PipelineKey(mesh.variant, material.key);
@@ -364,6 +359,7 @@ impl Renderable {
             },
             InterpolationMode::Skip => {
                 self.transform = transform;
+                self.previous_transform = transform;
                 self.interpolation_mode = InterpolationMode::Interpolate;
             },
             InterpolationMode::None => {

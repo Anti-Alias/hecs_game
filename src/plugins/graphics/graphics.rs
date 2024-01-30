@@ -24,7 +24,9 @@ impl Plugin for GraphicsPlugin {
     }
 }
 
+#[instrument(skip_all)]
 fn sync_graphics(world: &mut World, g3d_scene: &mut SceneGraph<g3d::Renderable>) {
+    
     // Syncs transforms
     let renderable_query = world.query_mut::<(&Transform, &Tracker<g3d::Renderable>)>();
     rayon::scope(|s| {
@@ -47,21 +49,7 @@ fn sync_graphics(world: &mut World, g3d_scene: &mut SceneGraph<g3d::Renderable>)
         let Some(renderable) = g3d_scene.get_mut(tracker.id()) else { continue };
         let Some(render_cam) = renderable.kind.as_camera_mut() else { continue };
         render_cam.viewport = camera.viewport;
-        match renderable.interpolation_mode {
-            InterpolationMode::Interpolate => {
-                render_cam.previous_projection = render_cam.projection;
-                render_cam.projection = camera.projection;
-            },
-            InterpolationMode::Skip => {
-                render_cam.previous_projection = camera.projection;
-                render_cam.projection = camera.projection;
-                renderable.interpolation_mode = InterpolationMode::Interpolate;
-            },
-            InterpolationMode::None => {
-                render_cam.previous_projection = camera.projection;
-                render_cam.projection = camera.projection;
-            },
-        }
+        render_cam.set_projection(camera.projection);
     }
 }
 

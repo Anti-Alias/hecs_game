@@ -71,20 +71,7 @@ impl AssetManager {
 
     /// Inserts an asset manually, and returns a handle to it.
     pub fn insert<A: Asset>(&mut self, asset: A) -> Handle<A> {
-        let asset_type = TypeId::of::<A>();
-        let storage = self.asset_storages.get_mut(&asset_type).unwrap();
-        let storage = storage.as_any_mut().downcast_mut::<InnerAssetStorage<A>>().unwrap();
-        let index = storage.insert(AssetState::Loaded(asset));
-        let id = AssetId { asset_type, index };
-        self.asset_metas.insert(id, AssetMeta {
-            path_hash: None,
-            ref_count: 1,
-        });
-        Handle {
-            id,
-            sender: self.sender.clone(),
-            phantom: PhantomData,
-        }
+        self.storage_mut::<A>().unwrap().insert(asset)
     }
 
     /// Gets asset storage

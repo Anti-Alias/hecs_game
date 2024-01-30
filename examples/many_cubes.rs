@@ -90,7 +90,7 @@ fn handle_start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
     
     // Spawns cubes
     let mut rng = SmallRng::seed_from_u64(48);
-    for _ in 0..100_000 {
+    for _ in 0..100 {
 
         // Creates random transform
         let scale = 0.2 + rng.gen::<f32>() * 0.2;
