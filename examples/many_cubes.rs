@@ -1,6 +1,6 @@
 use std::f32::consts::TAU;
 use glam::{Vec3, Quat};
-use hecs_game::g3d::{GpuMaterial, GpuMesh};
+use hecs_game::g3d::GpuMaterial;
 use hecs_game::math::Transform;
 use hecs_game::{g3d, App, AppBuilder, AssetManager, Camera, CameraController, Color, EnginePlugin, FlycamMode, FlycamPlugin, Game, GraphicsState, OrthographicProjector, PerspectiveProjector, RunContext, ScalingMode, Scene, Stage, StartEvent, Texture};
 use hecs::World;
@@ -90,7 +90,7 @@ fn handle_start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
     
     // Spawns cubes
     let mut rng = SmallRng::seed_from_u64(48);
-    for _ in 0..10 {
+    for _ in 0..100_000 {
 
         // Creates random transform
         let scale = 0.2 + rng.gen::<f32>() * 0.2;

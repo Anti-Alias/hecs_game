@@ -251,6 +251,7 @@ impl AppBuilder {
 
     /// Finishes building [`App`] and immediately runs it.
     pub fn run(mut self) {
+        
         #[cfg(feature = "profile")]
         {
             use tracing_chrome::ChromeLayerBuilder;
