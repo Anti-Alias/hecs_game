@@ -25,6 +25,10 @@ impl<'a, A: Asset> AssetStorage<'a, A> {
         self.inner.get(handle.id.index).unwrap().as_ref()
     }
 
+    pub unsafe fn get_unchecked(&self, handle: &Handle<A>) -> AssetState<&A> {
+        self.inner.get_unchecked(handle.id.index).as_ref()
+    }
+
     pub fn len(&self) -> usize {
         self.inner.len()
     }

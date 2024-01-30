@@ -73,8 +73,8 @@ impl G3D {
         flat_scene: FlatScene<'s>,
         texture_format: TextureFormat,
         depth_format: TextureFormat,
-        materials: &AssetStorage<GpuMaterial>,
-        meshes: &AssetStorage<GpuMesh>,
+        materials: &'s AssetStorage<GpuMaterial>,
+        meshes: &'s AssetStorage<GpuMesh>,
     ) -> RenderJobs<'s> {
         
         let mut jobs = Vec::new();
@@ -108,9 +108,14 @@ impl G3D {
 
                 // Extracts material and mesh from renderable. Skips if not loaded.
                 let MatMesh(material_handle, mesh_handle) = flat_mat_mesh.mat_mesh;
-                let AssetState::Loaded(material) = materials.get(material_handle) else { continue };
-                let AssetState::Loaded(mesh) = meshes.get(mesh_handle) else { continue };
-
+                let material = unsafe {
+                    let AssetState::Loaded(material) = materials.get_unchecked(material_handle) else { continue };
+                    material
+                };
+                let mesh = unsafe {
+                    let AssetState::Loaded(mesh) = meshes.get_unchecked(mesh_handle) else { continue };
+                    mesh
+                };
                 // Creates pipeline compatible with material and mesh.
                 // Does nothing if already cached.
                 let pipeline_key = PipelineKey(mesh.variant, material.key);
@@ -130,7 +135,7 @@ impl G3D {
                 let instance_key = InstanceKey { material_id: material_handle.id(), mesh_id: mesh_handle.id() };
                 let instance_batch = instance_batches
                     .entry(instance_key)
-                    .or_insert_with(|| MatMeshInstances::new(material_handle, mesh_handle, pipeline_key));
+                    .or_insert_with(|| MatMeshInstances::new(material, mesh, pipeline_key));
                 
                 // Inserts instance data into that batch.
                 instance_batch.instance_data.push(proj_view * flat_mat_mesh.global_transform);
@@ -187,7 +192,7 @@ impl G3D {
 
             // Gets material, mesh and pipeline for rendering.
             //let AssetState::Loaded(material) = materials.get(&instance_batch.material) else { continue };
-            let AssetState::Loaded(mesh) = meshes.get(&instance_batch.mesh) else { continue };
+            let mesh = instance_batch.mesh;
 
             // Collects instance bytes for this batch
             let transform_bytes: &[u8] = bytemuck::cast_slice(&instance_batch.instance_data);
@@ -447,16 +452,16 @@ struct InstanceKey {
 
 /// Instance data for a material + mesh combo
 struct MatMeshInstances<'a> {
-    material: &'a Handle<GpuMaterial>,
-    mesh: &'a Handle<GpuMesh>,
+    material: &'a GpuMaterial,
+    mesh: &'a GpuMesh,
     pipeline_key: PipelineKey,
     instance_data: Vec<Mat4>,
 }
 
 impl<'a> MatMeshInstances<'a> {
     pub fn new(
-        material: &'a Handle<GpuMaterial>,
-        mesh: &'a Handle<GpuMesh>,
+        material: &'a GpuMaterial,
+        mesh: &'a GpuMesh,
         pipeline_key: PipelineKey,
     ) -> Self {
         Self {

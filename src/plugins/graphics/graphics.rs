@@ -20,7 +20,7 @@ impl Plugin for GraphicsPlugin {
         };
         game.add(g3d::G3D::new(device.clone(), queue.clone()));
         let mut assets = game.get::<&mut AssetManager>();
-        assets.add_loader(TextureLoader { device, queue, });
+        assets.add_loader(TextureLoader { device, queue, }).unwrap();
     }
 }
 
