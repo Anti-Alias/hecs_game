@@ -190,7 +190,7 @@ impl G3D {
             let instance_range = buffer_offset .. buffer_offset+transform_bytes.len() as u64;
             let num_instances = instance_batch.instance_data.len() as u32;
             pass.set_pipeline(pipeline);
-            pass.set_bind_group(MATERIAL_INDEX, &material.bind_group, &[]);                     // Material
+            //pass.set_bind_group(MATERIAL_INDEX, &material.bind_group, &[]);                     // Material
             pass.set_vertex_buffer(INSTANCE_SLOT, self.instance_buffer.slice(instance_range));  // Instance data
             pass.set_vertex_buffer(VERTEX_SLOT, mesh.vertices.slice(..));                       // Mesh vertices
             pass.set_index_buffer(mesh.indices.slice(..), mesh.index_format);                   // Mesh indices
@@ -471,7 +471,6 @@ fn create_pipeline(
 
     // Extracts layout info and shader defs
     let mut shader_defs = ShaderPreprocessor::new();
-    let material_layout = &material.layout;
     let mesh_layout = mesh.variant.layout(&mut shader_defs);
     let vertex_layout = mesh_layout.as_vertex_layout();
 
@@ -483,16 +482,17 @@ fn create_pipeline(
     let module = device.create_shader_module(ShaderModuleDescriptor { label: Some("g3d_module"),
         source: ShaderSource::Wgsl(shader_code.into()),
     });
-    let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-        label: Some("g3d_layout"),
-        bind_group_layouts: &[material_layout],
-        push_constant_ranges: &[],
-    });
+    // let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+    //     label: Some("g3d_layout"),
+    //     bind_group_layouts: &[material_layout],
+    //     push_constant_ranges: &[],
+    // });
 
     // Creates pipeline
     device.create_render_pipeline(&RenderPipelineDescriptor {
         label: Some("g3d_pipeline"),
-        layout: Some(&layout),
+        layout: None,
+        //layout: Some(&layout),
         vertex: VertexState {
             module: &module,
             entry_point: "vertex_main",
