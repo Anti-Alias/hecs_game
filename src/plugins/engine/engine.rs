@@ -2,7 +2,8 @@ use std::time::Duration;
 use winit::keyboard::KeyCode;
 use winit::monitor::{MonitorHandle, VideoMode};
 use winit::window::Fullscreen;
-use crate::{AppBuilder, AssetPlugin, EcsPlugin, Game, GraphicsPlugin, InputPlugin, Keyboard, Plugin, RunContext, Stage, Window, WindowFeatures, WindowPlugin, WindowRequests};
+use crate::g3d::{GpuMaterial, GpuMesh};
+use crate::{AppBuilder, AssetManager, AssetPlugin, EcsPlugin, Game, GraphicsPlugin, InputPlugin, Keyboard, Plugin, RunContext, Stage, Window, WindowFeatures, WindowPlugin, WindowRequests};
 
 /**
  * Main game engine plugin.
@@ -24,6 +25,7 @@ impl Default for EnginePlugin {
 impl Plugin for EnginePlugin {
     fn install(&mut self, builder: &mut AppBuilder) {
         env_logger::init();
+
         builder
             .plugin(InputPlugin)
             .plugin(WindowPlugin {
@@ -36,6 +38,11 @@ impl Plugin for EnginePlugin {
             .plugin(GraphicsPlugin)
             .tick_duration(Duration::from_secs_f64(1.0/60.0));
         builder.system(Stage::PreUpdate, toggle_fullscreen);
+
+        let game = builder.game();
+        let mut assets = game.get::<&mut AssetManager>();
+        assets.add_storage::<GpuMesh>();
+        assets.add_storage::<GpuMaterial>();
     }
 }
 

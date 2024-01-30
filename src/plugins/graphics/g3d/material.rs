@@ -101,7 +101,7 @@ pub struct GpuMaterial {
 }
 
 impl GpuMaterial {
-    pub fn from_material(material: &Material, _device: &Device) -> Self {
+    pub fn from_material(material: &Material) -> Self {
         Self {
             key: material.key()
         }

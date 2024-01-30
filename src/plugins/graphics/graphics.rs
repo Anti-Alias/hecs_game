@@ -1,8 +1,9 @@
 use hecs::World;
 use tracing::instrument;
 use wgpu::{Color as WgpuColor, CommandEncoderDescriptor, LoadOp, Operations, RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPassDescriptor, StoreOp, SurfaceTexture};
+use crate::g3d::{GpuMaterial, GpuMesh};
 use crate::math::Transform;
-use crate::{g3d, AppBuilder, AssetManager, Camera, Game, GraphicsState, Plugin, RunContext, Scene, SceneGraph, Stage, TextureLoader, Tracker};
+use crate::{g3d, AppBuilder, AssetManager, AssetStorage, Camera, Game, GraphicsState, Plugin, RunContext, Scene, SceneGraph, Stage, TextureLoader, Tracker};
 
 
 /// Adds primitive [`GraphicsState`].
@@ -18,7 +19,7 @@ impl Plugin for GraphicsPlugin {
             (state.device.clone(), state.queue.clone())
         };
         game.add(g3d::G3D::new(device.clone(), queue.clone()));
-        let assets = game.get::<&mut AssetManager>();
+        let mut assets = game.get::<&mut AssetManager>();
         assets.add_loader(TextureLoader { device, queue, });
     }
 }
@@ -66,10 +67,11 @@ fn sync_graphics(world: &mut World, g3d_scene: &mut SceneGraph<g3d::Renderable>)
 
 fn render_3d(game: &mut Game, ctx: RunContext) {
 
-    let mut world = game.get::<&mut World>();
-    let graphics_state = game.get::<&GraphicsState>();
-    let mut g3d = game.get::<&mut g3d::G3D>();
-    let mut g3d_scene = game.get::<&mut Scene<g3d::Renderable>>();
+    let mut world           = game.get::<&mut World>();
+    let graphics_state      = game.get::<&GraphicsState>();
+    let mut g3d             = game.get::<&mut g3d::G3D>();
+    let mut g3d_scene       = game.get::<&mut Scene<g3d::Renderable>>();
+    let assets              = game.get::<&AssetManager>();
 
     if ctx.is_tick() {
         let g3d_scene = &mut g3d_scene.graph;
@@ -83,7 +85,10 @@ fn render_3d(game: &mut Game, ctx: RunContext) {
             return;
         }
     };
-    enqueue_render(&graphics_state, &mut g3d_scene, &mut g3d, &surface_tex, &ctx);
+
+    let materials = assets.storage::<GpuMaterial>().unwrap();
+    let meshes = assets.storage::<GpuMesh>().unwrap();
+    enqueue_render(&graphics_state, &mut g3d_scene, &mut g3d, &surface_tex, ctx.partial_ticks(), &materials, &meshes);
     surface_tex.present();
 }
 
@@ -93,7 +98,9 @@ fn enqueue_render(
     g3d_scene: &mut Scene<g3d::Renderable>,
     g3d: &mut g3d::G3D,
     surface_tex: &SurfaceTexture,
-    ctx: &RunContext,
+    partial_ticks: f32,
+    materials: &AssetStorage<GpuMaterial>,
+    meshes: &AssetStorage<GpuMesh>,
 ) {
     let texture_format = graphics_state.format();
     let depth_format = graphics_state.depth_format();
@@ -106,8 +113,8 @@ fn enqueue_render(
     let view = surface_tex.texture.create_view(&Default::default());
     let mut encoder = graphics_state.device.create_command_encoder(&CommandEncoderDescriptor::default());
     {
-        let flat_scene = g3d::flatten_scene(&g3d_scene, ctx.partial_ticks());
-        let g3d_jobs = g3d.prepare_jobs(flat_scene, texture_format, depth_format);
+        let flat_scene = g3d::flatten_scene(&g3d_scene, partial_ticks);
+        let g3d_jobs = g3d.prepare_jobs(flat_scene, texture_format, depth_format, materials, meshes);
 
         // Creates render pass
         let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
@@ -135,7 +142,7 @@ fn enqueue_render(
         });
 
         // Encodes 3D scene
-        g3d.render_jobs(g3d_jobs, &mut pass);
+        g3d.render_jobs(g3d_jobs, &mut pass, materials, meshes);
     }
 
     // Submits render commands

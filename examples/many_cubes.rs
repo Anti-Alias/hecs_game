@@ -1,7 +1,8 @@
 use std::f32::consts::TAU;
 use glam::{Vec3, Quat};
+use hecs_game::g3d::{GpuMaterial, GpuMesh};
 use hecs_game::math::Transform;
-use hecs_game::{g3d, App, AppBuilder, AssetManager, Camera, CameraController, Color, EnginePlugin, FlycamMode, FlycamPlugin, Game, GraphicsState, Handle, OrthographicProjector, PerspectiveProjector, RunContext, ScalingMode, Scene, Stage, StartEvent, Texture};
+use hecs_game::{g3d, App, AppBuilder, AssetManager, Camera, CameraController, Color, EnginePlugin, FlycamMode, FlycamPlugin, Game, GraphicsState, OrthographicProjector, PerspectiveProjector, RunContext, ScalingMode, Scene, Stage, StartEvent, Texture};
 use hecs::World;
 use rand::{SeedableRng, Rng};
 use rand::rngs::SmallRng;
@@ -29,7 +30,7 @@ fn handle_start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
     let mut world       = game.get::<&mut World>();
     let mut scene       = game.get::<&mut Scene<g3d::Renderable>>();
     let state           = game.get::<&GraphicsState>();
-    let assets          = game.get::<&AssetManager>();
+    let mut assets      = game.get::<&mut AssetManager>();
 
     // Spawns flycam
     let cam_tracker = scene.insert(g3d::Renderable::camera());
@@ -58,16 +59,16 @@ fn handle_start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
     ));
 
     // Loads texture
-    let texture: Handle<Texture> = assets.load("wobbuffet.png");
+    //let texture: Handle<Texture> = assets.load("wobbuffet.png");
     
     // Creates material
     let material = g3d::Material {
         base_color: Color::BLUE,
-        base_color_texture: Some(texture),
+        base_color_texture: None,
         cull_mode: Some(Face::Back),
     };
-    let material = g3d::GpuMaterial::from_material(&material, &state.device);
-    let material = Handle::new(material);
+    let material = GpuMaterial::from_material(&material);
+    let material = assets.insert(material);
     
     // Creates blue mesh
     let blue_mesh: g3d::Mesh = g3d::Mesh::from(g3d::Cuboid {
@@ -76,7 +77,7 @@ fn handle_start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
         color: Color::BLUE,
     });
     let blue_mesh = g3d::GpuMesh::from_mesh(&blue_mesh, &state.device);
-    let blue_mesh = Handle::new(blue_mesh);
+    let blue_mesh = assets.insert(blue_mesh);
 
     // Creates red mesh
     let red_mesh: g3d::Mesh = g3d::Mesh::from(g3d::Cuboid {
@@ -85,7 +86,7 @@ fn handle_start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
         color: Color::RED,
     });
     let red_mesh = g3d::GpuMesh::from_mesh(&red_mesh, &state.device);
-    let red_mesh = Handle::new(red_mesh);
+    let red_mesh = assets.insert(red_mesh);
     
     // Spawns cubes
     let mut rng = SmallRng::seed_from_u64(48);

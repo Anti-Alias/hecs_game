@@ -1,3 +1,5 @@
+use crate::AssetPath;
+
 /**
  * A method of receiving bytes from files.
  * IE: file, http, https, etc.
@@ -11,7 +13,7 @@ pub trait Protocol: Send + Sync + 'static {
     /**
      * Retrieves raw bytes from the path specified.
      */
-    fn read(&self, path: &str) -> anyhow::Result<Vec<u8>>;
+    fn read(&self, path: &AssetPath) -> anyhow::Result<Vec<u8>>;
 }
 
 /**
@@ -21,9 +23,31 @@ pub trait Protocol: Send + Sync + 'static {
 pub struct FileProtocol;
 impl Protocol for FileProtocol {
     fn name(&self) -> &str { return "file" }
-    fn read(&self, path: &str) -> anyhow::Result<Vec<u8>> {
-        println!("File path: {path}");
-        let bytes = std::fs::read(path)?;
+    fn read(&self, path: &AssetPath) -> anyhow::Result<Vec<u8>> {
+        let bytes = std::fs::read(path.without_protocol())?;
         Ok(bytes)
+    }
+}
+
+/**
+ * An implementation of [`Protocol`] that always returns the bytes it stores.
+ * Useful for testing purposes.
+ */
+#[derive(Clone, Debug)]
+pub struct RawProtocol(Vec<u8>);
+impl From<String> for RawProtocol {
+    fn from(value: String) -> Self {
+        Self(value.into_bytes())
+    }
+}
+impl From<&str> for RawProtocol {
+    fn from(value: &str) -> Self {
+        Self(value.as_bytes().to_vec())
+    }
+}
+impl Protocol for RawProtocol {
+    fn name(&self) -> &str { return "raw" }
+    fn read(&self, _path: &AssetPath) -> anyhow::Result<Vec<u8>> {
+        Ok(self.0.clone())
     }
 }

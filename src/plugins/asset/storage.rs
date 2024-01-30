@@ -2,9 +2,7 @@ use std::any::{Any, TypeId};
 use std::marker::PhantomData;
 use std::sync::mpsc::Sender;
 use slotmap::{new_key_type, SlotMap};
-use crate::HashMap;
-
-use super::{Asset, AssetId, AssetMessage, AssetMeta, PathHash};
+use crate::{HashMap, Asset, AssetId, AssetMessage, AssetMeta, PathHash};
 
 /// Trait that [`AssetStorage`] must implement to be used dynamically by the [`AssetServer`].
 pub(crate) trait DynStorage {
@@ -66,6 +64,14 @@ impl<'a, A: Asset> AssetStorageMut<'a, A> {
 
     pub fn get_mut(&mut self, handle: &Handle<A>) -> AssetState<&mut A> {
         self.inner.get_mut(handle.id.index).unwrap().as_mut()
+    }
+
+    pub fn get_weak(&self, handle: &WeakHandle<A>) -> Option<AssetState<&A>> {
+        self.inner.get(handle.id.index).map(|state| state.as_ref())
+    }
+
+    pub fn get_weak_mut(&mut self, handle: &WeakHandle<A>) -> Option<AssetState<&mut A>> {
+        self.inner.get_mut(handle.id.index).map(|state| state.as_mut())
     }
 
     pub fn len(&self) -> usize {
@@ -202,6 +208,13 @@ impl<A: Asset> Handle<A> {
             phantom: PhantomData,
         }
     }
+
+    pub fn weak(&self) -> WeakHandle<A> {
+        WeakHandle {
+            id: self.id,
+            phantom: PhantomData,
+        }
+    }
 }
 
 impl<A> Handle<A> {
@@ -223,6 +236,12 @@ impl<A> Drop for Handle<A> {
     fn drop(&mut self) {
         let _ = self.sender.send(AssetMessage::HandleDropped(self.id));
     }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Debug)]
+pub struct WeakHandle<A> {
+    id: AssetId,
+    phantom: PhantomData<A>,
 }
 
 new_key_type! {

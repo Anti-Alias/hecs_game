@@ -1,181 +1,472 @@
-use std::fmt::Debug;
-use std::sync::{Arc, RwLock};
-use derive_more::{Error, Display};
-use crate::{Handle, Protocol, PathParts, Asset, Dependencies, DynLoader, Loader, DynHandle, HashMap};
+use crate::{AssetState, HashMap};
+use derive_more::*;
+use std::any::{Any, TypeId};
+use std::collections::hash_map::Entry;
+use std::marker::PhantomData;
+use std::sync::mpsc::{Receiver, Sender};
+use std::sync::Arc;
+use crate::{Asset, AssetId, AssetLoader, AssetPath, AssetStorage, AssetStorageMut, DynLoader, DynStorage, Handle, InnerAssetStorage, PathHash, Protocol};
 
-/**
- * Central location for loading [`Asset`]s located in files.
- */
-pub struct AssetManager(Arc<RwLock<Store>>);
-impl Clone for AssetManager {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
+/// Responsible for loading assets in a background thread and storing them in relevant storages.
+pub struct AssetManager {
+    protocols: HashMap<String, Arc<dyn Protocol>>,
+    default_protocol: Option<String>,
+    loaders: Vec<Arc<dyn DynLoader>>,
+    extension_to_loader: HashMap<String, usize>,
+    asset_storages: HashMap<TypeId, Box<dyn DynStorage>>,
+    asset_metas: HashMap<AssetId, AssetMeta>,
+    path_to_asset: HashMap<PathHash, AssetId>,
+    sender: Sender<AssetMessage>,
+    receiver: Receiver<AssetMessage>,
+}
+
+impl AssetManager {
+
+    pub fn new() -> Self {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        Self {
+            protocols: HashMap::default(),
+            default_protocol: None,
+            loaders: Vec::default(),
+            extension_to_loader: HashMap::default(),
+            asset_storages: HashMap::default(),
+            asset_metas: HashMap::default(),
+            path_to_asset: HashMap::default(),
+            sender,
+            receiver,
+        }
+    }
+
+    /// Adds an asset storage for the specified asset type.
+    pub fn add_storage<A: Asset>(&mut self) {
+        let asset_type = TypeId::of::<A>();
+        self.asset_storages
+            .entry(asset_type)
+            .or_insert_with(|| Box::new(InnerAssetStorage::<A>::default()));
+    }
+
+    /// Adds a protocol for use in loading bytes for asset loaders.
+    pub fn add_protocol(&mut self, protocol: impl Protocol, is_default: bool) {
+        let name = String::from(protocol.name());
+        self.protocols.insert(name.clone(), Arc::new(protocol));
+        if is_default {
+            self.default_protocol = Some(name);
+        }
+    }
+
+    /// Adds a loader for transforming file bytes into assets.
+    pub fn add_loader(&mut self, loader: impl AssetLoader) -> Result<(), LoadError> {
+        for extension in loader.extensions() {
+            if self.extension_to_loader.contains_key(*extension) {
+                return Err(LoadError::ExtensionOverlaps);
+            }
+        }
+        let loader_index = self.loaders.len();
+        for extension in loader.extensions() {
+            self.extension_to_loader.insert(String::from(*extension), loader_index);
+        }
+        self.loaders.push(Arc::new(loader));
+        Ok(())
+    }
+
+    /// Inserts an asset manually, and returns a handle to it.
+    pub fn insert<A: Asset>(&mut self, asset: A) -> Handle<A> {
+        let asset_type = TypeId::of::<A>();
+        let storage = self.asset_storages.get_mut(&asset_type).unwrap();
+        let storage = storage.as_any_mut().downcast_mut::<InnerAssetStorage<A>>().unwrap();
+        let index = storage.insert(AssetState::Loaded(asset));
+        let id = AssetId { asset_type, index };
+        self.asset_metas.insert(id, AssetMeta {
+            path_hash: None,
+            ref_count: 1,
+        });
+        Handle {
+            id,
+            sender: self.sender.clone(),
+            phantom: PhantomData,
+        }
+    }
+
+    /// Gets asset storage
+    pub fn storage<A: Asset>(&self) -> Option<AssetStorage<A>> {
+        let asset_type = TypeId::of::<A>();
+        let dyn_storage = self.asset_storages.get(&asset_type)?;
+        let inner = dyn_storage.as_any().downcast_ref::<InnerAssetStorage<A>>().unwrap();
+        Some(AssetStorage { inner })
+    }
+
+    /// Gets asset storage
+    pub fn storage_mut<A: Asset>(&mut self) -> Option<AssetStorageMut<'_, A>> {
+        let asset_type = TypeId::of::<A>();
+        let dyn_storage = self.asset_storages.get_mut(&asset_type)?;
+        let inner = dyn_storage.as_any_mut().downcast_mut::<InnerAssetStorage<A>>().unwrap();
+        Some(AssetStorageMut {
+            inner,
+            metas: &mut self.asset_metas,
+            paths: &mut self.path_to_asset,
+            sender: &mut self.sender,
+        })
+    }
+
+    /// Loads an asset in the background, and returns a handle.
+    /// Contents of handle can be fetched from underlying storage once loading finishes.
+    pub fn load<A, P>(&mut self, path: P) -> Handle<A>
+    where
+        A: Asset,
+        P: AsRef<str>,
+    {
+        self.try_load(path).unwrap()
+    }
+
+    /// Loads an asset in the background, and returns a handle.
+    /// Contents of handle can be fetched from underlying storage once loading finishes.
+    /// Assumes that path_hash is the correct hash of path.
+    pub fn fast_load<A: Asset>(&mut self, path: &str, path_hash: PathHash) -> Handle<A> {
+        self.try_fast_load(path, path_hash).unwrap()
+    }
+
+    /// Loads an asset in the background, and returns a handle.
+    /// Contents of handle can be fetched from underlying storage once loading finishes.
+    pub fn try_load<A, P>(&mut self, path: P) -> Result<Handle<A>, LoadError>
+    where
+        A: Asset,
+        P: AsRef<str>,
+    {
+        let path = path.as_ref();
+        let path_hash = PathHash::of(path);
+        self.try_fast_load(path, path_hash)
+    }
+
+    /// Loads an asset in the background, and returns a handle.
+    /// Contents of handle can be fetched from underlying storage once loading finishes.
+    /// Assumes that path_hash is the hash of path.
+    pub fn try_fast_load<A: Asset>(&mut self, path: &str, path_hash: PathHash) -> Result<Handle<A>, LoadError> {
+        
+        // Returns cloned handle if already stored.
+        let asset_type = TypeId::of::<A>();
+        if let Some(asset_id) = self.path_to_asset.get(&path_hash) {
+            if asset_id.asset_type != asset_type {
+                return Err(LoadError::IncorrectAssetType);
+            }
+            let asset_meta = self.asset_metas.get_mut(asset_id).unwrap();
+            asset_meta.ref_count += 1;
+            return Ok(Handle::new(*asset_id, self.sender.clone()));
+        }
+
+        // Parses path, and uses it to fetch protocol and loader.
+        let path = AssetPath::parse(path, self.default_protocol.as_deref())?;
+        let protocol = match self.protocols.get_mut(&path.protocol) {
+            Some(protocol) => protocol.clone(),
+            None => return Err(LoadError::NoSuchProtocol),
+        };
+        let loader = match self.extension_to_loader.get(&path.extension) {
+            Some(loader_idx) => self.loaders[*loader_idx].clone(),
+            None => return Err(LoadError::NoSuchLoader),
+        };
+        
+        // Inserts new handle in "loading" state.
+        let dyn_storage = match self.asset_storages.get_mut(&asset_type) {
+            Some(dyn_storage) => dyn_storage,
+            None => return Err(LoadError::NoSuchStorage),
+        };
+        let asset_id = AssetId { asset_type, index: dyn_storage.insert_loading() };
+        self.path_to_asset.insert(path_hash, asset_id);
+        self.asset_metas.insert(asset_id, AssetMeta {
+            path_hash: Some(path_hash),
+            ref_count: 1,
+        });
+
+        // Loads asset in background thread.
+        let sender = self.sender.clone();
+        std::thread::spawn(move || {
+            let bytes = match protocol.read(&path) {
+                Ok(asset_bytes) => asset_bytes,
+                Err(err) => {
+                    log::error!("{err}");
+                    let _ = sender.send(AssetMessage::AssetFailedLoading(asset_id));
+                    return;
+                },
+            };
+            let dyn_asset = match loader.dyn_load(&bytes, &path) {
+                Ok(dyn_asset) => dyn_asset,
+                Err(err) => {
+                    log::error!("{err}");
+                    let _ = sender.send(AssetMessage::AssetFailedLoading(asset_id));
+                    return;
+                },
+            };
+            let _ = sender.send(AssetMessage::AssetFinishedLoading(asset_id, dyn_asset));
+        });
+
+        Ok(Handle {
+            id: asset_id,
+            sender: self.sender.clone(),
+            phantom: PhantomData,
+        })
+    }
+
+    /// Handles messages enqueued in storages.
+    /// This finishes loading assets that were loading in the background.
+    /// This discards assets that have no more references.
+    /// Acts as a sort of "garbage-collection" phase where the the user specifies when it runs.
+    pub fn try_handle_messages(&mut self) -> u32 {
+        let mut count = 0;
+        for message in self.receiver.try_iter() {
+            count += 1;
+            match message {
+                AssetMessage::HandleCloned(asset_id) => {
+                    let asset_meta = self.asset_metas.get_mut(&asset_id).unwrap();
+                    asset_meta.ref_count += 1;
+                },
+                AssetMessage::HandleDropped(asset_id) => {
+                    let mut asset_meta_entry = match self.asset_metas.entry(asset_id) {
+                        Entry::Occupied(asset_meta) => asset_meta,
+                        Entry::Vacant(_) => panic!("Asset entry not found"),
+                    };
+                    let asset_meta = asset_meta_entry.get_mut();
+                    asset_meta.ref_count -= 1;
+                    if asset_meta.ref_count == 0 {
+                        let storage = self.asset_storages.get_mut(&asset_id.asset_type).unwrap();
+                        storage.remove(asset_id.index);
+                        if let Some(path_hash) = asset_meta.path_hash {
+                            self.path_to_asset.remove(&path_hash);
+                        }
+                        asset_meta_entry.remove();
+                    }
+                },
+                AssetMessage::AssetFinishedLoading(asset_id, dyn_asset) => {
+                    let storage = self.asset_storages.get_mut(&asset_id.asset_type).unwrap();
+                    storage.finish_loading(asset_id.index, dyn_asset);
+                },
+                AssetMessage::AssetFailedLoading(asset_id) => {
+                    let storage = self.asset_storages.get_mut(&asset_id.asset_type).unwrap();
+                    storage.fail_loading(asset_id.index);
+                },
+            }
+        }
+        count
     }
 }
 
 impl Default for AssetManager {
     fn default() -> Self {
-        let store = Store {
-            base_path: "assets".to_string(),
-            default_protocol: None,
-            protocols: HashMap::default(),
-            handles: HashMap::default(),
-            extensions_to_loaders: HashMap::default(),
-            loaders: Vec::new(),
-        };
-        Self(Arc::new(RwLock::new(store)))
+        Self::new()
     }
 }
 
-impl AssetManager {
 
-    pub fn load<A: Asset>(&self, path: impl AsRef<str>) -> Handle<A> {
-        self.try_load(path).unwrap()
-    }
-
-    /// Loads an asset from a file.
-    /// Uses the protocol named in the path, or the default protocol if not specified.
-    /// path/to/file.png            (uses default protocol. Fails if there is none).
-    /// file://path/to/file.png     (uses file protocol).
-    /// http://path/to/file.png     (uses http protocol)
-    pub fn try_load<A: Asset>(&self, path: impl AsRef<str>) -> Result<Handle<A>, LoadError> {
-        
-        // Gets resources to load asset.
-        // Returns early if cached handle was found.
-        let (handle, protocol, path_parts, dyn_loader) = {
-            let mut store = self.0.write().unwrap();
-            let mut path_parts = PathParts::parse(path.as_ref(), store.default_protocol.as_deref())?;
-            let handle_id = fxhash::hash64(&path_parts);
-            if let Some(dyn_handle) = store.get_handle(handle_id) {
-                let handle = Handle::<A>::from_dyn(handle_id, dyn_handle.clone(), self.clone());
-                return Ok(handle);
-            }
-            path_parts.body = format!("{}/{}", store.base_path, path_parts.body);
-            let protocol = store.get_protocol(&path_parts.protocol)?;
-            let dyn_loader = store.get_loader(&path_parts.extension)?;
-            let handle = Handle::<A>::loading(handle_id, self.clone());
-            store.insert_handle(handle_id, handle.to_dyn());
-            (handle, protocol, path_parts, dyn_loader)
-        };
-
-        // Complete handle in the background.
-        let t_handle = handle.clone();
-        let dependencies = Dependencies(self.clone());
-        std::thread::spawn(move || {
-            let bytes = match protocol.read(&path_parts.path()) {
-                Ok(bytes) => bytes,
-                Err(err) => {
-                    log::error!("Failed to read bytes from {}: {}", path_parts, err);
-                    t_handle.fail();
-                    return;
-                },
-            };
-            let dyn_asset_result = dyn_loader.load(&bytes, &path_parts, dependencies);
-            let asset_result = match dyn_asset_result.downcast::<anyhow::Result<A>>() {
-                Ok(asset_result) => asset_result,
-                Err(_) => {
-                    log::error!("Incorrect asset type for {}", path_parts);
-                    t_handle.fail();
-                    return;
-                },
-            };
-            let asset = match *asset_result {
-                Ok(asset) => asset,
-                Err(err) => {
-                    log::error!("{err}");
-                    return;
-                },
-            };
-            t_handle.finish(asset);
-        });
-        return Ok(handle);
-    }
-
-    /// Removes a handle stored internally.
-    /// Called when the last [`Handle`] to an [`Asset`] gets dropped.
-    pub(crate) fn remove_handle(&self, handle_id: u64) {
-        let mut store = self.0.write().unwrap();
-        store.handles.remove(&handle_id);
-    }
-
-    pub fn add_protocol(&self, protocol: impl Protocol, default: bool) {
-        let mut store = self.0.write().unwrap();
-        let protocol_name = String::from(protocol.name());
-        store.protocols.insert(protocol_name.clone(), Arc::new(protocol));
-        if default {
-            store.default_protocol = Some(protocol_name);
-        }
-    }
-
-    pub fn set_base_path(&self, base_path: impl Into<String>) {
-        let mut store = self.0.write().unwrap();
-        store.base_path = base_path.into();
-    }
-
-    pub fn add_loader<L: Loader>(&self, loader: L) {
-        let mut store = self.0.write().unwrap();
-        let loader_idx = store.loaders.len();
-        store.loaders.push(Arc::new(loader));
-        for extension in L::EXTENSIONS {
-            store.extensions_to_loaders.insert(extension.to_lowercase(), loader_idx);
-        }
-    }
+pub(crate) enum AssetMessage {
+    HandleCloned(AssetId),
+    HandleDropped(AssetId),
+    AssetFailedLoading(AssetId),
+    AssetFinishedLoading(AssetId, Box<dyn Any + Send + Sync + 'static>),
 }
 
-/**
- * Underlying storage of [`AssetManager`].
- */
-struct Store {
-    base_path:              String,
-    default_protocol:       Option<String>,
-    protocols:              HashMap<String, Arc<dyn Protocol>>,
-    handles:                HashMap<u64, DynHandle>,
-    extensions_to_loaders:  HashMap<String, usize>,
-    loaders:                Vec<Arc<dyn DynLoader>>,
-}
-
-impl Store {
-    
-    /// Inserts a dynamic handle into the cache, overwriting the old one.
-    fn insert_handle(&mut self, handle_id: u64, dyn_handle: DynHandle) {
-        self.handles.insert(handle_id, dyn_handle);
-    }
-
-    /// Retrieves a weak handle from the cache if a match is found.
-    /// Fails if cached handle is of a different type.
-    fn get_handle(&self, handle_id: u64) -> Option<&DynHandle> {
-        self.handles.get(&handle_id)
-    }
-
-    /// Gets a protocol by name, or the default protocol if name is not specified.
-    /// Fails if not found.
-    fn get_protocol(&self, name: &str) -> Result<Arc<dyn Protocol>, LoadError> {
-        let Some(dyn_protocol) = self.protocols.get(name) else {
-            return Err(LoadError::NoMatchingProtocol);
-        };
-        return Ok(dyn_protocol.clone());
-    }
-
-    /// Gets a [`Loader`] by asset type.
-    fn get_loader(&self, extension: &str) -> Result<Arc<dyn DynLoader>, LoadError> {
-        let idx = self.extensions_to_loaders
-            .get(extension)
-            .ok_or(LoadError::NoMatchingLoader)?;
-        Ok(self.loaders[*idx].clone())
-    }
-}
-
-/// Error that can occur when [`AssetManager`] fails during load().
-#[derive(Error, Debug, Display)]
+#[derive(Error, Debug, Display, Clone, Eq, PartialEq)]
 pub enum LoadError {
-    #[display(fmt="Invalid path")]
-    InvalidPath,
-    #[display(fmt="No matching protocol")]
-    NoMatchingProtocol,
-    #[display(fmt="Path missing protocol, and no default protocol was available")]
-    PathMissingProtocol,
+    #[display(fmt="Incorrect asset type")]
+    IncorrectAssetType,
+    #[display(fmt="Asset storage not found")]
+    NoSuchStorage,
+    #[display(fmt="No default protocol")]
+    NoDefaultProtocol,
+    #[display(fmt="No such protocol")]
+    NoSuchProtocol,
+    #[display(fmt="No loader matching extension")]
+    NoSuchLoader,
     #[display(fmt="Path missing extension")]
     PathMissingExtension,
-    #[display(fmt="No matching loader")]
-    NoMatchingLoader,
+    #[display(fmt="Supported extension of one loader overlaps with another")]
+    ExtensionOverlaps,
+}
+
+#[derive(Debug)]
+pub(crate) struct AssetMeta {
+    pub path_hash: Option<PathHash>,
+    pub ref_count: u32,
+}
+
+#[cfg(test)]
+mod test {
+    use std::time::Duration;
+    use game_macros::load;
+    use serde_yaml::Value;
+    use crate::plugins::asset::*;
+
+    struct YmlLoader;
+    impl AssetLoader for YmlLoader {
+        type AssetType = Value;
+        fn load(&self, bytes: &[u8], _path: &AssetPath) -> anyhow::Result<Self::AssetType> {
+            let string = std::str::from_utf8(bytes)?;
+            let result: Value = serde_yaml::from_str(string)?;
+            Ok(result)
+        }
+        fn extensions(&self) -> &[&str] {
+            &["yml"]
+        }
+    }
+
+
+    #[test]
+    fn test_manual() {
+
+        // Creates asset manager with String asset storage.
+        let mut manager = AssetManager::new();
+        manager.add_storage::<&'static str>();
+
+        // Inserts asset manually and assert's they're loaded
+        let mut storage = manager.storage_mut::<&'static str>().unwrap();
+        assert_eq!(0, storage.len());
+        let handle_original = storage.insert("string");
+        assert_eq!(1, storage.len());
+        assert_eq!(AssetState::Loaded(&"string"), storage.get(&handle_original));
+        let handle_clone = handle_original.clone();
+        manager.try_handle_messages();
+
+        // Asserts handle's clone is loaded.
+        let storage = manager.storage::<&'static str>().unwrap();
+        assert_eq!(AssetState::Loaded(&"string"), storage.get(&handle_clone));
+        manager.try_handle_messages();
+
+        // Drops clone. Asserts original is loaded.
+        drop(handle_clone);
+        let storage = manager.storage::<&'static str>().unwrap();
+        assert_eq!(AssetState::Loaded(&"string"), storage.get(&handle_original));
+        manager.try_handle_messages();
+
+        // Drops original. Asserts there are none loaded.
+        drop(handle_original);
+        let storage = manager.storage::<&'static str>().unwrap();
+        assert_eq!(1, storage.len());
+        manager.try_handle_messages();
+
+        // After final drop, storage should be empty
+        let storage = manager.storage::<&'static str>().unwrap();
+        assert_eq!(0, storage.len());
+    }
+
+    #[test]
+    fn test_load() {
+
+        // Creates asset manager that loads a yml "file".
+        let mut manager = AssetManager::new();
+        manager.add_protocol(RawProtocol::from("{ name: steve, age: 22 }"), false);
+        manager.add_storage::<Value>();
+        manager.add_loader(YmlLoader).unwrap();
+        let handle: Handle<Value> = load!(manager, "raw://not_real_file.yml");
+
+        // Loads asset and asserts that it's in a "loading" state.
+        let storage = manager.storage::<Value>().unwrap();
+        let state = storage.get(&handle);
+        assert_eq!(true, state.is_loading());
+        assert_eq!(false, state.is_loaded());
+        assert_eq!(false, state.is_failed());
+
+        // Waits for asset to leave "loading" state.
+        let mut attempts = 10;
+        loop {
+            manager.try_handle_messages();
+            let storage = manager.storage::<Value>().unwrap();
+            let state = storage.get(&handle);
+            if !state.is_loading() { break }
+            attempts -= 1;
+            if attempts == 0 {
+                panic!("Failed to finish loading");
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+
+        // Verifies that asset is "loaded".
+        let storage = manager.storage::<Value>().unwrap();
+        let state = storage.get(&handle);
+        assert_eq!(false, state.is_loading());
+        assert_eq!(true, state.is_loaded());
+        assert_eq!(false, state.is_failed());
+
+        // Checks that panics don't occur from cloning and dropping handles.
+        let handle2 = handle.clone();
+        manager.try_handle_messages();
+        drop(handle);
+        manager.try_handle_messages();
+        drop(handle2);
+        manager.try_handle_messages();
+    }
+
+    #[test]
+    fn test_load_failure() {
+
+        // Creates asset manager that loads a yml "file".
+        let mut manager = AssetManager::new();
+        manager.add_protocol(RawProtocol::from("\"invalid yaml"), false);
+        manager.add_storage::<Value>();
+        manager.add_loader(YmlLoader).unwrap();
+        let handle: Handle<Value> = load!(manager, "raw://not_real_file.yml");
+
+        // Loads asset and asserts that it's in a "loading" state.
+        let storage = manager.storage::<Value>().unwrap();
+        let state = storage.get(&handle);
+        assert_eq!(true, state.is_loading());
+        assert_eq!(false, state.is_loaded());
+        assert_eq!(false, state.is_failed());
+
+        // Waits for asset to leave "loading" state.
+        let mut attempts = 10;
+        loop {
+            manager.try_handle_messages();
+            let storage = manager.storage::<Value>().unwrap();
+            let state = storage.get(&handle);
+            if !state.is_loading() { break }
+            attempts -= 1;
+            if attempts == 0 {
+                panic!("Failed to finish loading");
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+
+        // Verifies that asset is "failed".
+        let storage = manager.storage::<Value>().unwrap();
+        let state = storage.get(&handle);
+        assert_eq!(false, state.is_loading());
+        assert_eq!(false, state.is_loaded());
+        assert_eq!(true, state.is_failed());
+    }
+
+    #[test]
+    fn test_load_default_protocol() {
+
+        // Creates asset manager that loads a yml "file".
+        let mut manager = AssetManager::new();
+        manager.add_protocol(RawProtocol::from("{ yaml: true, json: false }"), true);
+        manager.add_storage::<Value>();
+        manager.add_loader(YmlLoader).unwrap();
+        let handle: Handle<Value> = load!(manager, "not_real_file.yml");
+
+        // Loads asset and asserts that it's in a "loading" state.
+        let storage = manager.storage::<Value>().unwrap();
+        let state = storage.get(&handle);
+        assert_eq!(true, state.is_loading());
+        assert_eq!(false, state.is_loaded());
+        assert_eq!(false, state.is_failed());
+
+        // Waits for asset to leave "loading" state.
+        let mut attempts = 10;
+        loop {
+            manager.try_handle_messages();
+            let storage = manager.storage::<Value>().unwrap();
+            let state = storage.get(&handle);
+            if !state.is_loading() { break }
+            attempts -= 1;
+            if attempts == 0 {
+                panic!("Failed to finish loading");
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+
+        // Verifies that asset is "loaded".
+        let storage = manager.storage::<Value>().unwrap();
+        let state = storage.get(&handle);
+        assert_eq!(false, state.is_loading());
+        assert_eq!(true, state.is_loaded());
+        assert_eq!(false, state.is_failed());
+    }
 }

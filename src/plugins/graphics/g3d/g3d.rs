@@ -6,7 +6,7 @@ use tracing::instrument;
 use derive_more::From;
 use wgpu::{BlendState, Buffer, BufferDescriptor, BufferUsages, ColorTargetState, ColorWrites, CompareFunction, DepthBiasState, DepthStencilState, Device, Face, FragmentState, FrontFace, PipelineLayoutDescriptor, PolygonMode, PrimitiveState, PrimitiveTopology, Queue, RenderPass, RenderPipeline, RenderPipelineDescriptor, ShaderModuleDescriptor, ShaderSource, StencilState, TextureFormat, VertexAttribute, VertexBufferLayout, VertexFormat, VertexState, VertexStepMode};
 use crate::math::{lerp_matrices, Frustum, Sphere, Transform, Volume, AABB};
-use crate::{reserve_buffer, Handle, HandleId, HasId, InterpolationMode, NodeId, Rect, Scene, ShaderPreprocessor, Slot, URect};
+use crate::{reserve_buffer, AssetId, AssetState, AssetStorage, Handle, HasId, InterpolationMode, NodeId, Rect, Scene, ShaderPreprocessor, URect, WeakHandle};
 use crate::g3d::{GpuMaterial, GpuMesh, MeshKey, Camera, CameraTarget};
 use super::MaterialKey;
 
@@ -73,6 +73,8 @@ impl G3D {
         flat_scene: FlatScene<'s>,
         texture_format: TextureFormat,
         depth_format: TextureFormat,
+        materials: &AssetStorage<GpuMaterial>,
+        meshes: &AssetStorage<GpuMesh>,
     ) -> RenderJobs<'s> {
         
         let mut jobs = Vec::new();
@@ -106,10 +108,8 @@ impl G3D {
 
                 // Extracts material and mesh from renderable. Skips if not loaded.
                 let MatMesh(material_handle, mesh_handle) = flat_mat_mesh.mat_mesh;
-                let material_slot = material_handle.slot();
-                let mesh_slot = mesh_handle.slot();
-                let Some(material) = material_slot.loaded() else { continue };
-                let Some(mesh) = mesh_slot.loaded() else { continue };
+                let AssetState::Loaded(material) = materials.get(material_handle) else { continue };
+                let AssetState::Loaded(mesh) = meshes.get(mesh_handle) else { continue };
 
                 // Creates pipeline compatible with material and mesh.
                 // Does nothing if already cached.
@@ -130,7 +130,7 @@ impl G3D {
                 let instance_key = InstanceKey { material_id: material_handle.id(), mesh_id: mesh_handle.id() };
                 let instance_batch = instance_batches
                     .entry(instance_key)
-                    .or_insert_with(|| MatMeshInstances::new(material_slot, mesh_slot, pipeline_key));
+                    .or_insert_with(|| MatMeshInstances::new(material_handle, mesh_handle, pipeline_key));
                 
                 // Inserts instance data into that batch.
                 instance_batch.instance_data.push(proj_view * flat_mat_mesh.global_transform);
@@ -146,7 +146,13 @@ impl G3D {
 
     /// Renders a collection of RenderJobs.
     #[instrument(skip_all)]
-    pub fn render_jobs<'s: 'r, 'r>(&'s mut self, jobs: RenderJobs<'r>, pass: &mut RenderPass<'r>) {
+    pub fn render_jobs<'s: 'r, 'r>(
+        &'s mut self,
+        jobs: RenderJobs<'r>,
+        pass: &mut RenderPass<'r>,
+        materials: &'r AssetStorage<GpuMaterial>,
+        meshes: &'r AssetStorage<GpuMesh>,
+    ) {
 
         // Reserves just enough room to store all instance data across all instance batches.
         reserve_buffer(
@@ -156,12 +162,18 @@ impl G3D {
         );
 
         for job in jobs.jobs {
-            self.render_job(job, pass);
+            self.render_job(job, pass, materials, meshes);
         }
     }
 
     /// Renders a single RenderJob.
-    fn render_job<'s: 'r, 'r>(&'s self, job: RenderJob<'r>, pass: &mut RenderPass<'r>) {
+    fn render_job<'s: 'r, 'r>(
+        &'s self,
+        job: RenderJob<'r>,
+        pass: &mut RenderPass<'r>,
+        _materials: &'r AssetStorage<GpuMaterial>,
+        meshes: &'r AssetStorage<GpuMesh>,
+    ) {
         let mut buffer_offset = 0;
         let mut instance_bytes = Vec::new();
 
@@ -173,17 +185,14 @@ impl G3D {
 
         for instance_batch in job.instance_batches {
 
+            // Gets material, mesh and pipeline for rendering.
+            //let AssetState::Loaded(material) = materials.get(&instance_batch.material) else { continue };
+            let AssetState::Loaded(mesh) = meshes.get(&instance_batch.mesh) else { continue };
+
             // Collects instance bytes for this batch
             let transform_bytes: &[u8] = bytemuck::cast_slice(&instance_batch.instance_data);
             instance_bytes.extend_from_slice(transform_bytes);
 
-            // Gets material, mesh and pipeline for rendering.
-            let material: &'r GpuMaterial = unsafe {
-                std::mem::transmute(instance_batch.material_slot.loaded().unwrap())
-            };
-            let mesh: &'r GpuMesh = unsafe {
-                std::mem::transmute(instance_batch.mesh_slot.loaded().unwrap())
-            };
             let pipeline = self.pipelines.get(&instance_batch.pipeline_key).unwrap();
 
             // Draws instances of a single material / mesh
@@ -432,27 +441,27 @@ impl identity_hash::IdentityHashable for PipelineKey {}
 /// Key used to collect material/meshes into instances
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 struct InstanceKey {
-    material_id: HandleId,
-    mesh_id: HandleId,
+    material_id: AssetId,
+    mesh_id: AssetId,
 }
 
 /// Instance data for a material + mesh combo
 struct MatMeshInstances<'a> {
-    material_slot: Slot<'a, GpuMaterial>,
-    mesh_slot: Slot<'a, GpuMesh>,
+    material: &'a Handle<GpuMaterial>,
+    mesh: &'a Handle<GpuMesh>,
     pipeline_key: PipelineKey,
     instance_data: Vec<Mat4>,
 }
 
 impl<'a> MatMeshInstances<'a> {
     pub fn new(
-        material_slot: Slot<'a, GpuMaterial>,
-        mesh_slot: Slot<'a, GpuMesh>,
+        material: &'a Handle<GpuMaterial>,
+        mesh: &'a Handle<GpuMesh>,
         pipeline_key: PipelineKey,
     ) -> Self {
         Self {
-            material_slot,
-            mesh_slot,
+            material,
+            mesh,
             pipeline_key,
             instance_data: Vec::new(),
         }

@@ -5,7 +5,6 @@ mod window;
 mod graphics;
 mod input;
 mod camera;
-mod asset2;
 
 pub use ecs::*;
 pub use asset::*;

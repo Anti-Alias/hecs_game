@@ -2,22 +2,21 @@ use std::io::Cursor;
 use std::sync::Arc;
 use image::{DynamicImage, ImageFormat};
 use wgpu::{AddressMode, Device, Extent3d, FilterMode, ImageCopyTexture, ImageDataLayout, Origin3d, Queue, SamplerDescriptor, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages};
-use crate::{Dependencies, Loader, PathParts};
 use image::io::Reader as ImageReader;
 use derive_more::*;
 use bytemuck::cast_slice;
+use crate::{AssetLoader, AssetPath};
 
 pub struct TextureLoader {
     pub device: Arc<Device>,
     pub queue: Arc<Queue>,
 }
 
-impl Loader for TextureLoader {
+impl AssetLoader for TextureLoader {
 
     type AssetType = Texture;
-    const EXTENSIONS: &'static [&'static str] = &["png", "jpg", "jpeg"];
 
-    fn load(&self, bytes: &[u8], path: &PathParts, _dependencies: Dependencies) -> anyhow::Result<Self::AssetType> {
+    fn load(&self, bytes: &[u8], path: &AssetPath) -> anyhow::Result<Self::AssetType> {
         let format = match ImageFormat::from_extension(&path.extension) {
             Some(format) => Ok(format),
             None => Err(LoadError::UnsupportedFileExtension),
@@ -64,6 +63,10 @@ impl Loader for TextureLoader {
             ..Default::default()
         });
         Ok(Texture { texture, sampler })
+    }
+
+    fn extensions(&self) -> &[&str] {
+        &["png", "jpg", "jpeg"]
     }
 }
 
