@@ -6,7 +6,6 @@ use crate::{AssetIndex, AssetManager};
 pub trait Asset: Any + Send + Sync {
     fn readiness(&self, _assets: &AssetManager) -> Readiness { Readiness::Ready }
 }
-impl<A: Any + Send + Sync> Asset for A {}
 
 /// Value that can uniquely identify an asset within an asset manager.
 #[derive(Copy, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Debug)]

@@ -1,14 +1,16 @@
-use crate::{Color, Handle, Texture};
+use crate::{Asset, AssetState, AssetStorage, Color, Handle, Readiness, Texture};
 use bitflags::bitflags;
-use wgpu::util::{DeviceExt, BufferInitDescriptor};
-use wgpu::{BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, BufferBinding, BufferUsages, Device, Face, SamplerBindingType, ShaderStages, TextureSampleType, TextureViewDimension};
+use bytemuck::cast_slice;
+use wgpu::util::{BufferInitDescriptor, DeviceExt};
+use wgpu::{BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, BufferBinding, BufferBindingType, BufferUsages, Device, Face, SamplerBindingType, ShaderStages, TextureSampleType, TextureViewDimension};
 
 
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub struct Material {
     pub base_color: Color,
     pub base_color_texture: Option<Handle<Texture>>,
     pub cull_mode: Option<Face>,
+    pub prepared: Option<PreparedMaterial>,
 }
 
 impl Material {
@@ -21,13 +23,100 @@ impl Material {
         bytemuck::bytes_of(&self.base_color)
     }
 
-    pub fn key(&self) -> MaterialKey {
+    /// Returns prepared material if all dependent textures are loaded.
+    pub(crate) fn prepare<'a>(&self, textures: &'a AssetStorage<Texture>, device: &Device) -> PreparedMaterial {
+
+        // Color buffer
+        let color = &[self.base_color];
+        let uniform_bytes: &[u8] = cast_slice(color);
+        let uniform_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: None,
+            contents: uniform_bytes,
+            usage: BufferUsages::COPY_DST | BufferUsages::UNIFORM,
+        });
+
+        // Bind group / layout
+        let mut layout_entries = Vec::new();
+        let mut group_entries = Vec::new();
         let mut flags = MaterialFlags::NONE;
-        if self.base_color_texture.is_some() {
+
+        // Base color
+        layout_entries.push(BindGroupLayoutEntry {
+            binding: Self::BASE_COLOR_BINDING,
+            visibility: ShaderStages::FRAGMENT,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        });
+        group_entries.push(BindGroupEntry {
+            binding: Self::BASE_COLOR_BINDING,
+            resource: BindingResource::Buffer(BufferBinding {
+                buffer: &uniform_buffer,
+                offset: 0,
+                size: None,
+            }),
+        });
+
+        // Base color texture
+        if let Some(base_color_texture) = &self.base_color_texture {
+            let base_color_texture = textures.get(base_color_texture);
+            let base_color_texture = base_color_texture.unwrap();
+            let entries = base_color_texture.create_entries(Self::BASE_COLOR_TEX_BINDING, Self::BASE_COLOR_SAM_BINDING);
+            layout_entries.push(entries.layout_texture_entry);
+            layout_entries.push(entries.layout_sampler_entry);
+            group_entries.push(entries.group_texture_entry);
+            group_entries.push(entries.group_sampler_entry);
             flags |= MaterialFlags::BASE_COLOR_TEX;
         }
-        MaterialKey { flags, cull_mode: self.cull_mode }
+
+        // Finishes preparing material
+        let bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: None,
+            entries: &layout_entries,
+        });
+        let bind_group = device.create_bind_group(&BindGroupDescriptor {
+            label: None,
+            layout: &bind_group_layout,
+            entries: &group_entries,
+        });
+        PreparedMaterial {
+            key: MaterialKey { flags, cull_mode: self.cull_mode },
+            bind_group_layout,
+            bind_group,
+        }
     }
+
+    pub fn all_textures_loaded(&self, textures: &AssetStorage<Texture>) -> bool {
+        if let Some(base_color_texture) = &self.base_color_texture {
+            if !textures.get(base_color_texture).is_loaded() {
+                return false;
+            }
+        }
+        true
+    }
+}
+impl Asset for Material {}
+
+fn readiness_of(texture: &Option<Handle<Texture>>, textures: &AssetStorage<Texture>) -> Readiness {
+    match texture {
+        Some(texture) => match textures.get(texture) {
+            AssetState::Loading => Readiness::NotReady,
+            AssetState::Loaded(_) => Readiness::Ready,
+            AssetState::Failed => Readiness::Failed,
+        },
+        None => Readiness::Ready,
+    }
+}
+
+
+/// Material data that has been "prepared" for use in the graphics engine.
+pub struct PreparedMaterial {
+    pub key: MaterialKey,
+    pub bind_group_layout: BindGroupLayout,
+    pub bind_group: BindGroup,
 }
 
 pub struct MaterialLayout(Vec<BindGroupLayoutEntry>);
@@ -90,105 +179,4 @@ bitflags! {
         const BASE_COLOR_TEX    = 0b00000001;
         const ALL               = 0b11111111;
     }
-}
-
-
-/// GPU representation of [`Material`].
-pub struct GpuMaterial {
-    //pub(crate) bind_group: BindGroup,
-    //pub(crate) layout: BindGroupLayout,
-    pub (crate) key: MaterialKey,
-}
-
-impl GpuMaterial {
-    pub fn from_material(material: &Material) -> Self {
-        Self {
-            key: material.key()
-        }
-    }
-    // pub fn from_material(material: &Material, device: &Device) -> Self {
-    //     let key = material.key();
-
-    //     // Uploads uniform entry
-    //     let uniform_data = device.create_buffer_init(&BufferInitDescriptor {
-    //         label: Some("uniform_buffer"),
-    //         contents: material.uniform_bytes(),
-    //         usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-    //     });
-
-    //     // Builds bind group and bind group layout entries
-    //     let mut layout_entries = Vec::new();
-    //     let mut group_entries = Vec::new();
-
-    //     // Base color
-    //     layout_entries.push(BindGroupLayoutEntry {
-    //         binding: Material::BASE_COLOR_BINDING,
-    //         visibility: ShaderStages::FRAGMENT,
-    //         ty: BindingType::Buffer {
-    //             ty: wgpu::BufferBindingType::Uniform,
-    //             has_dynamic_offset: false,
-    //             min_binding_size: None,
-    //         },
-    //         count: None,
-    //     });
-    //     group_entries.push(BindGroupEntry {
-    //         binding: Material::BASE_COLOR_BINDING,
-    //         resource: BindingResource::Buffer(BufferBinding {
-    //             buffer: &uniform_data,
-    //             offset: 0,
-    //             size: None,
-    //         }),
-    //     });
-
-    //     // Base color texture and sampler
-    //     if key.flags & MaterialFlags::BASE_COLOR_TEX != MaterialFlags::NONE {
-    //         layout_entries.push(BindGroupLayoutEntry {
-    //             binding: Material::BASE_COLOR_TEX_BINDING,
-    //             visibility: ShaderStages::FRAGMENT,
-    //             ty: BindingType::Texture {
-    //                 sample_type: TextureSampleType::default(),
-    //                 view_dimension: TextureViewDimension::D2,
-    //                 multisampled: false,
-    //             },
-    //             count: None,
-    //         });
-    //         layout_entries.push(BindGroupLayoutEntry {
-    //             binding: Material::BASE_COLOR_SAM_BINDING,
-    //             visibility: ShaderStages::FRAGMENT,
-    //             ty: BindingType::Sampler(SamplerBindingType::Filtering),
-    //             count: None,
-    //         });
-    //         group_entries.push(BindGroupEntry {
-    //             binding: Material::BASE_COLOR_TEX_BINDING,
-    //             resource: BindingResource::TextureView(),
-    //         });
-    //     }
-
-    //     // Creates layout for material
-    //     let layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-    //         label: Some("material_layout"),
-    //         entries: &layout_entries,
-    //     });
-    //     let bind_group = device.create_bind_group(&BindGroupDescriptor {
-    //         label: Some("material_bind_group"),
-    //         layout: &layout,
-    //         entries: &group_entries,
-    //     });
-
-
-
-    //     let bind_group = device.create_bind_group(&BindGroupDescriptor {
-    //         label: Some("material"),
-    //         layout: &layout,
-    //         entries: &[BindGroupEntry {
-    //             binding: Material::BASE_COLOR_BINDING,
-    //             resource: BindingResource::Buffer(BufferBinding {
-    //                 buffer: &uniform_data,
-    //                 offset: 0,
-    //                 size: None,
-    //             }),
-    //         }],
-    //     });
-    //     Self { bind_group, layout, key }
-    //}
 }

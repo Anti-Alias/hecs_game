@@ -4,20 +4,20 @@ use wgpu::util::{DeviceExt, BufferInitDescriptor};
 use wgpu::{VertexBufferLayout, VertexStepMode, VertexAttribute, VertexFormat, Buffer, Device, BufferUsages, IndexFormat};
 use glam::{Vec3, Vec2};
 use bitflags::bitflags;
-use crate::{Color, ShaderPreprocessor};
+use crate::{Asset, Color, ShaderPreprocessor};
 
 /**
  * A 3D mesh.
 */
 #[derive(Clone, Default)]
-pub struct Mesh {
+pub struct MeshData {
     pub indices:    Vec<u32>,
     pub positions:  Vec<Vec3>,
     pub colors:     Option<Vec<Color>>,
     pub normals:    Option<Vec<Vec3>>,
     pub uvs:        Option<Vec<Vec2>>,
 }
-impl Mesh {
+impl MeshData {
     const POSITION_LOCATION: u32    = 4;
     const COLOR_LOCATION: u32       = 5;
     const NORMAL_LOCATION: u32      = 6;
@@ -115,15 +115,15 @@ impl Mesh {
 
     /// Size of each vertex in bytes.
     fn vertex_size(&self) -> usize {
-        let mut size = Mesh::POSITION_SIZE;
+        let mut size = MeshData::POSITION_SIZE;
         if self.colors.is_some() {
-            size += Mesh::COLOR_SIZE;
+            size += MeshData::COLOR_SIZE;
         }
         if self.normals.is_some() {
-            size += Mesh::NORMAL_SIZE;
+            size += MeshData::NORMAL_SIZE;
         }
         if self.uvs.is_some() {
-            size += Mesh::UV_SIZE;
+            size += MeshData::UV_SIZE;
         }
         size
     }
@@ -175,18 +175,18 @@ impl MeshKey {
         layout.attributes.push(VertexAttribute {
             format: VertexFormat::Float32x3,
             offset,
-            shader_location: Mesh::POSITION_LOCATION,
+            shader_location: MeshData::POSITION_LOCATION,
         });
-        offset += Mesh::POSITION_SIZE as u64;
+        offset += MeshData::POSITION_SIZE as u64;
 
         // Color
         if self & Self::COLOR != Self::NONE {
             layout.attributes.push(VertexAttribute {
                 format: VertexFormat::Float32x4,
                 offset,
-                shader_location: Mesh::COLOR_LOCATION,
+                shader_location: MeshData::COLOR_LOCATION,
             });
-            offset += Mesh::COLOR_SIZE as u64;
+            offset += MeshData::COLOR_SIZE as u64;
             defs.add("COLOR");
         }
 
@@ -195,9 +195,9 @@ impl MeshKey {
             layout.attributes.push(VertexAttribute {
                 format: VertexFormat::Float32x3,
                 offset,
-                shader_location: Mesh::NORMAL_LOCATION,
+                shader_location: MeshData::NORMAL_LOCATION,
             });
-            offset += Mesh::NORMAL_SIZE as u64;
+            offset += MeshData::NORMAL_SIZE as u64;
             defs.add("NORMAL");
         }
 
@@ -206,9 +206,9 @@ impl MeshKey {
             layout.attributes.push(VertexAttribute {
                 format: VertexFormat::Float32x2,
                 offset,
-                shader_location: Mesh::UV_LOCATION,
+                shader_location: MeshData::UV_LOCATION,
             });
-            offset += Mesh::UV_SIZE as u64;
+            offset += MeshData::UV_SIZE as u64;
             defs.add("UV");
         }
         layout.array_stride = offset;
@@ -235,16 +235,17 @@ impl MeshLayout {
 }
 
 /// GPU representation of [`Mesh`].
-pub struct GpuMesh {
+pub struct Mesh {
     pub(crate) vertices: Buffer,
     pub(crate) indices: Buffer,
     pub(crate) index_format: IndexFormat,
     pub(crate) num_indices: u32,
-    pub(crate) variant: MeshKey,
+    pub(crate) key: MeshKey,
 }
+impl Asset for Mesh {}
 
-impl GpuMesh {
-    pub fn from_mesh(mesh: &Mesh, device: &Device) -> Self {
+impl Mesh {
+    pub fn from_data(mesh: &MeshData, device: &Device) -> Self {
         Self {
             vertices: device.create_buffer_init(&BufferInitDescriptor {
                 label: Some("vertex_buffer"),
@@ -258,7 +259,7 @@ impl GpuMesh {
             }),
             index_format: IndexFormat::Uint32,
             num_indices: mesh.indices.len() as u32,
-            variant: mesh.variant(),
+            key: mesh.variant(),
         }
     }
 }

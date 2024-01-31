@@ -1,11 +1,11 @@
 use std::io::Cursor;
 use std::sync::Arc;
 use image::{DynamicImage, ImageFormat};
-use wgpu::{AddressMode, Device, Extent3d, FilterMode, ImageCopyTexture, ImageDataLayout, Origin3d, Queue, SamplerDescriptor, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages};
+use wgpu::{AddressMode, BindGroupEntry, BindGroupLayoutEntry, BindingResource, BindingType, Device, Extent3d, FilterMode, ImageCopyTexture, ImageDataLayout, Origin3d, Queue, SamplerBindingType, SamplerDescriptor, ShaderStages, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureViewDescriptor, TextureViewDimension};
 use image::io::Reader as ImageReader;
 use derive_more::*;
 use bytemuck::cast_slice;
-use crate::{AssetLoader, AssetPath};
+use crate::{Asset, AssetLoader, AssetPath};
 
 pub struct TextureLoader {
     pub device: Arc<Device>,
@@ -40,6 +40,7 @@ impl AssetLoader for TextureLoader {
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
             view_formats: &[],
         });
+        let view = texture.create_view(&TextureViewDescriptor::default());
         let copy_texture = ImageCopyTexture {
             texture: &texture,
             mip_level: 0,
@@ -62,7 +63,7 @@ impl AssetLoader for TextureLoader {
             mipmap_filter: FilterMode::Nearest,
             ..Default::default()
         });
-        Ok(Texture { texture, sampler })
+        Ok(Texture { view, sampler })
     }
 
     fn extensions(&self) -> &[&str] {
@@ -214,12 +215,56 @@ fn get_texture_data(dyn_img: DynamicImage, is_srgb: bool) -> TextureData {
     TextureData { data, width, height, format, }
 }
 
+pub struct TextureEntries<'a> {
+    pub layout_texture_entry: BindGroupLayoutEntry,
+    pub layout_sampler_entry: BindGroupLayoutEntry,
+    pub group_texture_entry: BindGroupEntry<'a>,
+    pub group_sampler_entry: BindGroupEntry<'a>,
+}
+
 
 /// A texture with an associated sampler.
 pub struct Texture {
-    pub texture: wgpu::Texture,
+    pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
 }
+
+impl Texture {
+    pub fn create_entries<'a>(&'a self, texture_binding: u32, sampler_binding: u32) -> TextureEntries<'a> {
+        let layout_texture_entry = BindGroupLayoutEntry {
+            binding: texture_binding,
+            visibility: ShaderStages::FRAGMENT,
+            ty: BindingType::Texture {
+                sample_type: TextureSampleType::Float { filterable: true },
+                view_dimension: TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        };
+        let layout_sampler_entry = BindGroupLayoutEntry {
+            binding: sampler_binding,
+            visibility: ShaderStages::FRAGMENT,
+            ty: BindingType::Sampler(SamplerBindingType::Filtering),
+            count: None,
+        };
+        let group_texture_entry = BindGroupEntry {
+            binding: texture_binding,
+            resource: BindingResource::TextureView(&self.view),
+        };
+        let group_sampler_entry = BindGroupEntry {
+            binding: sampler_binding,
+            resource: BindingResource::Sampler(&self.sampler)
+        };
+        TextureEntries {
+            layout_texture_entry,
+            layout_sampler_entry,
+            group_texture_entry,
+            group_sampler_entry,
+        }
+    }
+}
+
+impl Asset for Texture {}
 
 #[derive(Error, Debug, Display)]
 pub enum LoadError {

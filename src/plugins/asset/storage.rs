@@ -2,7 +2,7 @@ use std::any::{Any, TypeId};
 use std::marker::PhantomData;
 use std::sync::mpsc::Sender;
 use slotmap::{new_key_type, SlotMap};
-use crate::{HashMap, Asset, AssetId, AssetMessage, AssetMeta, PathHash};
+use crate::{Asset, AssetId, AssetMessage, AssetMeta, HashMap, PathHash, Readiness};
 
 /// Trait that [`AssetStorage`] must implement to be used dynamically by the [`AssetServer`].
 pub(crate) trait DynStorage {
@@ -31,6 +31,14 @@ impl<'a, A: Asset> AssetStorage<'a, A> {
 
     pub fn len(&self) -> usize {
         self.inner.len()
+    }
+
+    pub fn values(&mut self) -> impl Iterator<Item = &AssetState<A>> {
+        self.inner.values()
+    }
+
+    pub fn iter(&mut self) -> impl Iterator<Item = (AssetIndex, &AssetState<A>)> {
+        self.inner.iter()
     }
 }
 
@@ -80,6 +88,14 @@ impl<'a, A: Asset> AssetStorageMut<'a, A> {
 
     pub fn len(&self) -> usize {
         self.inner.len()
+    }
+
+    pub fn values(&mut self) -> impl Iterator<Item = &AssetState<A>> {
+        self.inner.values()
+    }
+
+    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut AssetState<A>> {
+        self.inner.values_mut()
     }
 }
 
@@ -174,10 +190,18 @@ impl<A> AssetState<A> {
             AssetState::Failed => AssetState::<&mut A>::Failed,
         }
     }
+
+    pub fn to_readiness(&self) -> Readiness {
+        match self {
+            AssetState::Loading => Readiness::NotReady,
+            AssetState::Loaded(_) => Readiness::Ready,
+            AssetState::Failed => Readiness::Failed,
+        }
+    }
 }
 
-impl<A> AssetState<&A> {
-    pub fn unwrap(&self) -> &A {
+impl<'a, A> AssetState<&'a A> {
+    pub fn unwrap(&self) -> &'a A {
         match self {
             AssetState::Loading => panic!("Asset is in a loading state"),
             AssetState::Loaded(asset) => asset,

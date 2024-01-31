@@ -1,8 +1,7 @@
 use std::f32::consts::TAU;
 use glam::{Vec3, Quat};
-use hecs_game::g3d::GpuMaterial;
 use hecs_game::math::Transform;
-use hecs_game::{g3d, App, AppBuilder, AssetManager, Camera, CameraController, Color, EnginePlugin, FlycamMode, FlycamPlugin, Game, GraphicsState, OrthographicProjector, PerspectiveProjector, RunContext, ScalingMode, Scene, Stage, StartEvent, Texture};
+use hecs_game::{g3d, App, AppBuilder, AssetManager, Camera, CameraController, Color, EnginePlugin, FlycamMode, FlycamPlugin, Game, GraphicsState, OrthographicProjector, PerspectiveProjector, RunContext, ScalingMode, Scene, Stage, StartEvent};
 use hecs::World;
 use rand::{SeedableRng, Rng};
 use rand::rngs::SmallRng;
@@ -58,34 +57,31 @@ fn handle_start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
         },
     ));
 
-    // Loads texture
-    //let texture: Handle<Texture> = assets.load("wobbuffet.png");
-    
     // Creates material
-    let material = g3d::Material {
+    let texture = assets.load("wobbuffet.png");
+    let material = assets.insert(g3d::Material {
         base_color: Color::BLUE,
-        base_color_texture: None,
+        base_color_texture: Some(texture),
         cull_mode: Some(Face::Back),
-    };
-    let material = GpuMaterial::from_material(&material);
-    let material = assets.insert(material);
+        ..Default::default()
+    });
     
     // Creates blue mesh
-    let blue_mesh: g3d::Mesh = g3d::Mesh::from(g3d::Cuboid {
+    let blue_mesh: g3d::MeshData = g3d::MeshData::from(g3d::Cuboid {
         center: Vec3::new(0.0, 0.0, 0.0),
         half_extents: Vec3::new(0.5, 0.5, 0.5),
         color: Color::BLUE,
     });
-    let blue_mesh = g3d::GpuMesh::from_mesh(&blue_mesh, &state.device);
+    let blue_mesh = g3d::Mesh::from_data(&blue_mesh, &state.device);
     let blue_mesh = assets.insert(blue_mesh);
 
     // Creates red mesh
-    let red_mesh: g3d::Mesh = g3d::Mesh::from(g3d::Cuboid {
+    let red_mesh: g3d::MeshData = g3d::MeshData::from(g3d::Cuboid {
         center: Vec3::new(0.0, 0.0, 0.0),
         half_extents: Vec3::new(0.5, 0.5, 0.5),
         color: Color::RED,
     });
-    let red_mesh = g3d::GpuMesh::from_mesh(&red_mesh, &state.device);
+    let red_mesh = g3d::Mesh::from_data(&red_mesh, &state.device);
     let red_mesh = assets.insert(red_mesh);
     
     // Spawns cubes

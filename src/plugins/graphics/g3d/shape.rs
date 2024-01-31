@@ -1,5 +1,5 @@
 use glam::Vec3;
-use crate::{Color, g3d::Mesh};
+use crate::{Color, g3d::MeshData};
 
 /**
  * A simple cuboid shape.
@@ -11,7 +11,7 @@ pub struct Cuboid {
     pub color: Color,
 }
 
-impl From<Cuboid> for Mesh {
+impl From<Cuboid> for MeshData {
     fn from(cuboid: Cuboid) -> Self {
         let mut positions = Vec::new();
         let mut normals = Vec::new();
@@ -52,7 +52,7 @@ impl From<Cuboid> for Mesh {
         positions.extend([rbf, lbf, ltf, rtf]);
         normals.extend([Vec3::NEG_Z; 4]);
 
-        Mesh {
+        MeshData {
             positions,
             colors: Some(vec![cuboid.color; 24]),
             normals: Some(normals),
