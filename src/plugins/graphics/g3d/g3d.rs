@@ -485,7 +485,6 @@ fn create_pipeline(
     // Generates shader module
     let shader_code = include_str!("shader.wgsl");
     let shader_code = shader_defs.preprocess(shader_code).unwrap();
-    println!("{shader_code}");
     let module = device.create_shader_module(ShaderModuleDescriptor { label: Some("g3d_module"),
         source: ShaderSource::Wgsl(shader_code.into()),
     });

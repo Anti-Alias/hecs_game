@@ -83,7 +83,7 @@ impl From<Cuboid> for MeshData {
                 16,17,18,18,19,16,
                 20,21,22,22,23,20,
             ],
-            ..Default::default()
+            uvs: Some(uvs),
         }
     }
 }

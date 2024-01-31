@@ -81,5 +81,19 @@ fn vertex_main(instance: InstanceIn, vert: VertexIn) -> VertexOut {
 
 @fragment
 fn fragment_main(in: FragmentIn) -> @location(0) vec4<f32> {
-  return in.color;
+    var color = uni.base_color;
+
+    // Base color texture
+    #ifdef UV
+    #ifdef BASE_COLOR_TEX
+    color *= textureSample(base_color_tex, base_color_sam, in.uv);
+    #endif
+    #endif
+
+    // Vertex colors
+    #ifdef COLOR
+    color *= in.color;
+    #endif
+
+    return color;
 }

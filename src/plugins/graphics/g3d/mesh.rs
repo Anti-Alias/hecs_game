@@ -41,7 +41,7 @@ impl MeshData {
     /**
      * Computes the [`MeshVariant`].
      */
-    pub fn variant(&self) -> MeshKey {
+    pub fn key(&self) -> MeshKey {
         let mut variant = MeshKey::NONE;
         if self.colors.is_some() {
             variant |= MeshKey::COLOR;
@@ -259,7 +259,7 @@ impl Mesh {
             }),
             index_format: IndexFormat::Uint32,
             num_indices: mesh.indices.len() as u32,
-            key: mesh.variant(),
+            key: mesh.key(),
         }
     }
 }

@@ -58,20 +58,20 @@ fn handle_start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
     ));
 
     // Creates material
-    let texture = assets.load("wobbuffet.png");
+    let texture = assets.load("cube_texture.png");
     let material = assets.insert(g3d::Material {
-        base_color: Color::BLUE,
         base_color_texture: Some(texture),
         cull_mode: Some(Face::Back),
         ..Default::default()
     });
     
-    // Creates blue mesh
-    let blue_mesh: g3d::MeshData = g3d::MeshData::from(g3d::Cuboid {
+    // Creates clear mesh
+    let mut blue_mesh: g3d::MeshData = g3d::MeshData::from(g3d::Cuboid {
         center: Vec3::new(0.0, 0.0, 0.0),
         half_extents: Vec3::new(0.5, 0.5, 0.5),
         color: Color::BLUE,
     });
+    blue_mesh.colors = None;
     let blue_mesh = g3d::Mesh::from_data(&blue_mesh, &state.device);
     let blue_mesh = assets.insert(blue_mesh);
 
@@ -86,7 +86,7 @@ fn handle_start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
     
     // Spawns cubes
     let mut rng = SmallRng::seed_from_u64(48);
-    for _ in 0..100 {
+    for _ in 0..10 {
 
         // Creates random transform
         let scale = 0.2 + rng.gen::<f32>() * 0.2;
