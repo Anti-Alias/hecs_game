@@ -82,6 +82,7 @@ impl App {
         }
 
         // Runs per-frame stages
+        self.run_stage(Stage::Asset, delta, is_tick, partial_ticks);
         self.run_stage(Stage::Render, delta, is_tick, partial_ticks);
     }
 
@@ -263,6 +264,7 @@ impl AppBuilder {
         }
         #[cfg(not(feature = "profile"))]
         {
+            env_logger::init();
             let mut runner = self.runner.take().expect("Runner not configured");
             runner.run(self.app);
         }
@@ -391,9 +393,11 @@ pub enum Stage {
     /// IE: Hitbox / hurtbox.
     PostUpdate,
     /// Per tick.
-    /// Runs reaction-code based on the outcomes of Upate and UpdatePhysics.
-    /// IE: Hitbox / hurtbox.
+    /// Cleanup code for things that happened this tick.
     Cleanup,
+    /// Per frame.
+    /// Runs logic pertaining to asset management.
+    Asset,
     /// Per frame.
     /// Updates animations and renders.
     Render,

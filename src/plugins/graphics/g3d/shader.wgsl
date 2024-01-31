@@ -44,6 +44,19 @@ struct FragmentIn {
     #endif
 }
 
+struct Uniform {
+    base_color: vec4<f32>,
+}
+
+@group(0) @binding(0)
+var<uniform> uni: Uniform;
+#ifdef BASE_COLOR_TEX
+@group(0) @binding(1)
+var base_color_tex: texture_2d<f32>;
+@group(0) @binding(2)
+var base_color_sam: sampler;
+#endif
+
 @vertex
 fn vertex_main(instance: InstanceIn, vert: VertexIn) -> VertexOut {
     let mvp = mat4x4<f32>(

@@ -4,11 +4,11 @@ use std::sync::Arc;
 use glam::{Mat4, Affine3A, Vec3};
 use tracing::instrument;
 use derive_more::From;
-use wgpu::{BlendState, Buffer, BufferDescriptor, BufferUsages, ColorTargetState, ColorWrites, CompareFunction, DepthBiasState, DepthStencilState, Device, Face, FragmentState, FrontFace, PolygonMode, PrimitiveState, PrimitiveTopology, Queue, RenderPass, RenderPipeline, RenderPipelineDescriptor, ShaderModuleDescriptor, ShaderSource, StencilState, TextureFormat, VertexAttribute, VertexBufferLayout, VertexFormat, VertexState, VertexStepMode};
+use wgpu::{BlendState, Buffer, BufferDescriptor, BufferUsages, ColorTargetState, ColorWrites, CompareFunction, DepthBiasState, DepthStencilState, Device, Face, FragmentState, FrontFace, PipelineLayoutDescriptor, PolygonMode, PrimitiveState, PrimitiveTopology, Queue, RenderPass, RenderPipeline, RenderPipelineDescriptor, ShaderModuleDescriptor, ShaderSource, StencilState, TextureFormat, VertexAttribute, VertexBufferLayout, VertexFormat, VertexState, VertexStepMode};
 use crate::math::{lerp_matrices, Frustum, Sphere, Transform, Volume, AABB};
-use crate::{reserve_buffer, AssetId, AssetState, AssetStorage, Handle, HasId, InterpolationMode, NodeId, Rect, Scene, ShaderPreprocessor, Texture, URect};
+use crate::{reserve_buffer, AssetId, AssetState, AssetStorage, Handle, HasId, InterpolationMode, NodeId, Rect, Scene, ShaderPreprocessor, URect};
 use crate::g3d::{Material, Mesh, MeshKey, Camera, CameraTarget};
-use super::MaterialKey;
+use super::{MaterialKey, PreparedMaterial};
 
 const INSTANCE_SLOT: u32 = 0;
 const VERTEX_SLOT: u32 = 1;
@@ -112,17 +112,17 @@ impl G3D {
                 // Skips if material or mesh have not done loading.
                 // Skips if material has textures that are not done loading.
                 let MatMesh(material_handle, mesh_handle) = flat_mat_mesh.mat_mesh;
-                let AssetState::Loaded(material) = materials.get(material_handle) else { continue };
                 let AssetState::Loaded(mesh) = meshes.get(mesh_handle) else { continue };
+                let AssetState::Loaded(material) = materials.get(material_handle) else { continue };
                 let Some(prepared_material) = &material.prepared else { continue };
                 
                 // Creates pipeline compatible with material and mesh.
                 // Does nothing if already cached.
                 let pipeline_key = PipelineKey(mesh.key, prepared_material.key);
-                let pipeline = self.pipelines
+                self.pipelines
                     .entry(pipeline_key)
                     .or_insert_with(|| create_pipeline(
-                        &material,
+                        &prepared_material,
                         &mesh,
                         prepared_material.key.cull_mode,
                         texture_format,
@@ -135,7 +135,7 @@ impl G3D {
                 let instance_key = InstanceKey { material_id: material_handle.id(), mesh_id: mesh_handle.id() };
                 let instance_batch = instance_batches
                     .entry(instance_key)
-                    .or_insert_with(|| MatMeshInstances::new(material, mesh, pipeline_key));
+                    .or_insert_with(|| MatMeshInstances::new(prepared_material, mesh, pipeline_key));
                 
                 // Inserts instance data into that batch.
                 instance_batch.instance_data.push(proj_view * flat_mat_mesh.global_transform);
@@ -182,8 +182,9 @@ impl G3D {
 
         for instance_batch in job.instance_batches {
 
+
             // Gets material, mesh and pipeline for rendering.
-            let (material, mesh) = (instance_batch.mesh, instance_batch.mesh);
+            let (material, mesh) = (instance_batch.material, instance_batch.mesh);
 
             // Collects instance bytes for this batch
             let transform_bytes: &[u8] = bytemuck::cast_slice(&instance_batch.instance_data);
@@ -195,10 +196,10 @@ impl G3D {
             let instance_range = buffer_offset .. buffer_offset+transform_bytes.len() as u64;
             let num_instances = instance_batch.instance_data.len() as u32;
             pass.set_pipeline(pipeline);
-            //pass.set_bind_group(MATERIAL_INDEX, &material.bind_group, &[]);                     // Material
+            pass.set_bind_group(MATERIAL_INDEX, &material.bind_group, &[]);               // Material
             pass.set_vertex_buffer(INSTANCE_SLOT, self.instances.slice(instance_range));  // Instance data
-            pass.set_vertex_buffer(VERTEX_SLOT, mesh.vertices.slice(..));                       // Mesh vertices
-            pass.set_index_buffer(mesh.indices.slice(..), mesh.index_format);                   // Mesh indices
+            pass.set_vertex_buffer(VERTEX_SLOT, mesh.vertices.slice(..));                 // Mesh vertices
+            pass.set_index_buffer(mesh.indices.slice(..), mesh.index_format);             // Mesh indices
             pass.draw_indexed(0..mesh.num_indices, 0, 0..num_instances);
             buffer_offset += transform_bytes.len() as u64;
         }
@@ -444,7 +445,7 @@ struct InstanceKey {
 
 /// Instance data for a material + mesh combo
 struct MatMeshInstances<'a> {
-    material: &'a Material,
+    material: &'a PreparedMaterial,
     mesh: &'a Mesh,
     pipeline_key: PipelineKey,
     instance_data: Vec<Mat4>,
@@ -452,7 +453,7 @@ struct MatMeshInstances<'a> {
 
 impl<'a> MatMeshInstances<'a> {
     pub fn new(
-        material: &'a Material,
+        material: &'a PreparedMaterial,
         mesh: &'a Mesh,
         pipeline_key: PipelineKey,
     ) -> Self {
@@ -467,7 +468,7 @@ impl<'a> MatMeshInstances<'a> {
 
 /// Creates a pipeline compatible with the material and mesh supplied.
 fn create_pipeline(
-    material: &Material,
+    material: &PreparedMaterial,
     mesh: &Mesh,
     cull_mode: Option<Face>,
     texture_format: TextureFormat,
@@ -477,28 +478,27 @@ fn create_pipeline(
 
     // Extracts layout info and shader defs
     let mut shader_defs = ShaderPreprocessor::new();
+    material.write_shader_defs(&mut shader_defs);
     let mesh_layout = mesh.key.layout(&mut shader_defs);
     let vertex_layout = mesh_layout.as_vertex_layout();
 
     // Generates shader module
     let shader_code = include_str!("shader.wgsl");
-    let shader_code = shader_defs
-        .preprocess(shader_code)
-        .unwrap();
+    let shader_code = shader_defs.preprocess(shader_code).unwrap();
+    println!("{shader_code}");
     let module = device.create_shader_module(ShaderModuleDescriptor { label: Some("g3d_module"),
         source: ShaderSource::Wgsl(shader_code.into()),
     });
-    // let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-    //     label: Some("g3d_layout"),
-    //     bind_group_layouts: &[material_layout],
-    //     push_constant_ranges: &[],
-    // });
 
     // Creates pipeline
+    let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+        label: Some("g3d_layout"),
+        bind_group_layouts: &[&material.bind_group_layout],
+        push_constant_ranges: &[],
+    });
     device.create_render_pipeline(&RenderPipelineDescriptor {
         label: Some("g3d_pipeline"),
-        layout: None,
-        //layout: Some(&layout),
+        layout: Some(&layout),
         vertex: VertexState {
             module: &module,
             entry_point: "vertex_main",

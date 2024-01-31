@@ -1,4 +1,4 @@
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 use crate::{Color, g3d::MeshData};
 
 /**
@@ -13,8 +13,20 @@ pub struct Cuboid {
 
 impl From<Cuboid> for MeshData {
     fn from(cuboid: Cuboid) -> Self {
+
+        const U0: f32 = 0.0 / 4.0;
+        const U1: f32 = 1.0 / 4.0;
+        const U2: f32 = 2.0 / 4.0;
+        const U3: f32 = 3.0 / 4.0;
+        const U4: f32 = 4.0 / 4.0;
+        const V0: f32 = 0.0 / 3.0;
+        const V1: f32 = 1.0 / 3.0;
+        const V2: f32 = 2.0 / 3.0;
+        const V3: f32 = 3.0 / 3.0;
+
         let mut positions = Vec::new();
         let mut normals = Vec::new();
+        let mut uvs = Vec::new();
         let center = cuboid.center;
         let half = cuboid.half_extents;
 
@@ -31,26 +43,33 @@ impl From<Cuboid> for MeshData {
         // LEFT
         positions.extend([lbf, lbn, ltn, ltf]);
         normals.extend([Vec3::NEG_X; 4]);
+        uvs.extend([Vec2::new(U0, V2), Vec2::new(U1, V2), Vec2::new(U1, V1), Vec2::new(U0, V1)]);
 
         // RIGHT
         positions.extend([rbn, rbf, rtf, rtn]);
         normals.extend([Vec3::X; 4]);
+        uvs.extend([Vec2::new(U2, V2), Vec2::new(U3, V2), Vec2::new(U3, V1), Vec2::new(U2, V1)]);
 
         // BOTTOM
         positions.extend([lbf, rbf, rbn, lbn]);
         normals.extend([Vec3::NEG_Y; 4]);
+        uvs.extend([Vec2::new(U1, V3), Vec2::new(U2, V3), Vec2::new(U2, V2), Vec2::new(U1, V2)]);
 
         // TOP
         positions.extend([ltn, rtn, rtf, ltf]);
         normals.extend([Vec3::Y; 4]);
+        uvs.extend([Vec2::new(U1, V1), Vec2::new(U2, V1), Vec2::new(U2, V0), Vec2::new(U1, V0)]);
 
         // NEAR
         positions.extend([lbn, rbn, rtn, ltn]);
         normals.extend([Vec3::Z; 4]);
+        uvs.extend([Vec2::new(U1, V2), Vec2::new(U2, V2), Vec2::new(U2, V1), Vec2::new(U1, V1)]);
 
         // FAR
         positions.extend([rbf, lbf, ltf, rtf]);
         normals.extend([Vec3::NEG_Z; 4]);
+        uvs.extend([Vec2::new(U3, V2), Vec2::new(U4, V2), Vec2::new(U4, V1), Vec2::new(U3, V1)]);
+
 
         MeshData {
             positions,

@@ -3,7 +3,7 @@ use tracing::instrument;
 use wgpu::{Color as WgpuColor, CommandEncoderDescriptor, Device, LoadOp, Operations, RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPassDescriptor, StoreOp, SurfaceTexture};
 use crate::g3d::{Material, Mesh};
 use crate::math::Transform;
-use crate::{g3d, AppBuilder, AssetManager, AssetState, Camera, Game, GraphicsState, Plugin, RunContext, Scene, SceneGraph, Stage, Texture, TextureLoader, Tracker};
+use crate::{g3d, AppBuilder, AssetManager, AssetStorage, Camera, Game, GraphicsState, Plugin, RunContext, Scene, SceneGraph, Stage, Texture, TextureLoader, Tracker};
 
 
 /// Adds primitive [`GraphicsState`].
@@ -74,24 +74,23 @@ fn render_3d(game: &mut Game, ctx: RunContext) {
         }
     };
 
-    enqueue_render(&graphics_state, &mut g3d_scene, &mut g3d, &surface_tex, ctx.partial_ticks(), &assets);
+    let textures = assets.storage::<Texture>().unwrap();
+    let meshes = assets.storage::<Mesh>().unwrap();
+    let mut materials = assets.storage::<Material>().unwrap();
+
+    prepare_materials(&mut materials, &textures, &graphics_state.device);
+    enqueue_render(&graphics_state, &mut g3d_scene, &mut g3d, &surface_tex, ctx.partial_ticks(), &materials, &meshes);
     surface_tex.present();
 }
 
-#[instrument(skip_all)]
-fn prepare_materials(assets: &mut AssetManager, device: &Device) {
-    
-    let textures = assets.storage::<Texture>().unwrap();
-    let mut materials = assets.storage::<Material>().unwrap();
-
-    // Gets prepared materials
-    let mut prepared_materials = Vec::new();
-    for material in materials.values() {
-        let Some(material) = material.as_loaded() else { continue };
-        if material.prepared.is_none() && material.all_textures_loaded(&textures) {
-            let prepared = material.prepare(&textures, device);
-            prepared_materials.push(prepared);
-        }
+fn prepare_materials(
+    materials: &mut AssetStorage<Material>,
+    textures: &AssetStorage<Texture>,
+    device: &Device,
+) {
+    for material in materials.values_mut() {
+        let Some(material) = material.as_loaded_mut() else { continue };
+        material.prepare(textures, device);
     }
 }
 
@@ -102,7 +101,8 @@ fn enqueue_render(
     g3d: &mut g3d::G3D,
     surface_tex: &SurfaceTexture,
     partial_ticks: f32,
-    assets: &AssetManager,
+    materials: &AssetStorage<Material>,
+    meshes: &AssetStorage<Mesh>,
 ) {
     let texture_format = graphics_state.format();
     let depth_format = graphics_state.depth_format();
@@ -115,11 +115,6 @@ fn enqueue_render(
     let view = surface_tex.texture.create_view(&Default::default());
     let mut encoder = graphics_state.device.create_command_encoder(&CommandEncoderDescriptor::default());
     {
-
-        let textures = assets.storage::<Texture>().unwrap();
-        let mut materials = assets.storage::<Material>().unwrap();
-        let meshes = assets.storage::<Mesh>().unwrap();
-
         // Flattens scene, and creates render jobs
         let flat_scene = g3d::flatten_scene(&g3d_scene, partial_ticks);
         let g3d_jobs = g3d.create_jobs(flat_scene, texture_format, depth_format, &materials, &meshes);

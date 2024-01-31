@@ -1,4 +1,4 @@
-use crate::{Asset, AssetState, AssetStorage, Color, Handle, Readiness, Texture};
+use crate::{Asset, AssetStorage, Color, Handle, ShaderPreprocessor, Texture};
 use bitflags::bitflags;
 use bytemuck::cast_slice;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
@@ -15,7 +15,7 @@ pub struct Material {
 
 impl Material {
 
-    const BASE_COLOR_BINDING: u32 = 0;
+    const UNIFORM_BINDING: u32 = 0;
     const BASE_COLOR_TEX_BINDING: u32 = 1;
     const BASE_COLOR_SAM_BINDING: u32 = 2;
 
@@ -24,7 +24,14 @@ impl Material {
     }
 
     /// Returns prepared material if all dependent textures are loaded.
-    pub(crate) fn prepare<'a>(&self, textures: &'a AssetStorage<Texture>, device: &Device) -> PreparedMaterial {
+    pub(crate) fn prepare<'a>(&'a mut self, textures: &AssetStorage<Texture>, device: &Device) {
+
+        if self.prepared.is_some() {
+            return;
+        }
+        if !is_tex_loaded(&self.base_color_texture, textures) {
+            return;
+        }
 
         // Color buffer
         let color = &[self.base_color];
@@ -42,7 +49,7 @@ impl Material {
 
         // Base color
         layout_entries.push(BindGroupLayoutEntry {
-            binding: Self::BASE_COLOR_BINDING,
+            binding: Self::UNIFORM_BINDING,
             visibility: ShaderStages::FRAGMENT,
             ty: BindingType::Buffer {
                 ty: BufferBindingType::Uniform,
@@ -52,7 +59,7 @@ impl Material {
             count: None,
         });
         group_entries.push(BindGroupEntry {
-            binding: Self::BASE_COLOR_BINDING,
+            binding: Self::UNIFORM_BINDING,
             resource: BindingResource::Buffer(BufferBinding {
                 buffer: &uniform_buffer,
                 offset: 0,
@@ -82,33 +89,22 @@ impl Material {
             layout: &bind_group_layout,
             entries: &group_entries,
         });
-        PreparedMaterial {
+        self.prepared = Some(PreparedMaterial {
             key: MaterialKey { flags, cull_mode: self.cull_mode },
             bind_group_layout,
             bind_group,
-        }
-    }
-
-    pub fn all_textures_loaded(&self, textures: &AssetStorage<Texture>) -> bool {
-        if let Some(base_color_texture) = &self.base_color_texture {
-            if !textures.get(base_color_texture).is_loaded() {
-                return false;
-            }
-        }
-        true
+        });
     }
 }
 impl Asset for Material {}
 
-fn readiness_of(texture: &Option<Handle<Texture>>, textures: &AssetStorage<Texture>) -> Readiness {
-    match texture {
-        Some(texture) => match textures.get(texture) {
-            AssetState::Loading => Readiness::NotReady,
-            AssetState::Loaded(_) => Readiness::Ready,
-            AssetState::Failed => Readiness::Failed,
-        },
-        None => Readiness::Ready,
+pub fn is_tex_loaded(texture: &Option<Handle<Texture>>, textures: &AssetStorage<Texture>) -> bool {
+    if let Some(texture) = texture {
+        if !textures.get(texture).is_loaded() {
+            return false;
+        }
     }
+    true
 }
 
 
@@ -117,6 +113,15 @@ pub struct PreparedMaterial {
     pub key: MaterialKey,
     pub bind_group_layout: BindGroupLayout,
     pub bind_group: BindGroup,
+}
+
+impl PreparedMaterial {
+    pub fn write_shader_defs(&self, defs: &mut ShaderPreprocessor) {
+        let flags = self.key.flags;
+        if flags & MaterialFlags::BASE_COLOR_TEX != MaterialFlags::NONE {
+            defs.add("BASE_COLOR_TEX");
+        }
+    }
 }
 
 pub struct MaterialLayout(Vec<BindGroupLayoutEntry>);
@@ -133,7 +138,7 @@ impl MaterialKey {
         
         // Base color
         let mut layout = vec![BindGroupLayoutEntry {
-            binding: Material::BASE_COLOR_BINDING,
+            binding: Material::UNIFORM_BINDING,
             visibility: ShaderStages::FRAGMENT,
             ty: BindingType::Buffer {
                 ty: wgpu::BufferBindingType::Uniform,

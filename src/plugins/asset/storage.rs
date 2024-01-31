@@ -42,12 +42,20 @@ impl<'a, A: Asset> AssetStorage<'a, A> {
         self.inner.get(handle.id.index).unwrap().as_ref()
     }
 
+    pub fn get_mut(&mut self, handle: &Handle<A>) -> AssetState<&A> {
+        self.inner.get_mut(handle.id.index).unwrap().as_ref()
+    }
+
     pub fn len(&self) -> usize {
         self.inner.len()
     }
 
-    pub fn values(&mut self) -> impl Iterator<Item = &AssetState<A>> {
+    pub fn values(&self) -> impl Iterator<Item = &AssetState<A>> {
         self.inner.values()
+    }
+
+    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut AssetState<A>> {
+        self.inner.values_mut()
     }
 
     pub fn iter(&mut self) -> impl Iterator<Item = (AssetIndex, &AssetState<A>)> {
@@ -95,7 +103,7 @@ impl<'a, A: Asset> AssetStorageMut<'a, A> {
         self.inner.len()
     }
 
-    pub fn values(&mut self) -> impl Iterator<Item = &AssetState<A>> {
+    pub fn values(&self) -> impl Iterator<Item = &AssetState<A>> {
         self.inner.values()
     }
 

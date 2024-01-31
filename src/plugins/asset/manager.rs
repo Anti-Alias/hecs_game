@@ -10,6 +10,7 @@ use crate::{Asset, AssetId, AssetLoader, AssetPath, AssetStorage, AssetStorageMu
 
 /// Responsible for loading assets in a background thread and storing them in relevant storages.
 pub struct AssetManager {
+    path_prefix: Option<String>,
     protocols: HashMap<String, Arc<dyn Protocol>>,
     default_protocol: Option<String>,
     loaders: Vec<Arc<dyn DynLoader>>,
@@ -26,6 +27,7 @@ impl AssetManager {
     pub fn new() -> Self {
         let (sender, receiver) = std::sync::mpsc::channel();
         Self {
+            path_prefix: None,
             protocols: HashMap::default(),
             default_protocol: None,
             loaders: Vec::default(),
@@ -36,6 +38,10 @@ impl AssetManager {
             sender,
             receiver,
         }
+    }
+
+    pub fn set_path_prefix<S: Into<String>>(&mut self, prefix: Option<S>) {
+        self.path_prefix = prefix.map(|s| s.into());
     }
 
     /// Adds an asset storage for the specified asset type.
@@ -150,7 +156,10 @@ impl AssetManager {
         }
 
         // Parses path, and uses it to fetch protocol and loader.
-        let path = AssetPath::parse(path, self.default_protocol.as_deref())?;
+        let mut path = AssetPath::parse(path, self.default_protocol.as_deref())?;
+        if let Some(path_prefix) = &self.path_prefix {
+            path.body = format!("{}/{}", path_prefix, path.body);
+        }
         let protocol = match self.protocols.get_mut(&path.protocol) {
             Some(protocol) => protocol.clone(),
             None => return Err(LoadError::NoSuchProtocol),
