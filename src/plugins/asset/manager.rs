@@ -1,6 +1,7 @@
-use crate::{AssetState, HashMap};
+use crate::HashMap;
 use derive_more::*;
 use std::any::{Any, TypeId};
+use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::marker::PhantomData;
 use std::sync::mpsc::{Receiver, Sender};
@@ -42,7 +43,7 @@ impl AssetManager {
         let asset_type = TypeId::of::<A>();
         self.asset_storages
             .entry(asset_type)
-            .or_insert_with(|| Box::new(InnerAssetStorage::<A>::default()));
+            .or_insert_with(|| Box::new(RefCell::new(InnerAssetStorage::<A>::default())));
     }
 
     /// Adds a protocol for use in loading bytes for asset loaders.
@@ -78,19 +79,27 @@ impl AssetManager {
     pub fn storage<A: Asset>(&self) -> Option<AssetStorage<A>> {
         let asset_type = TypeId::of::<A>();
         let dyn_storage = self.asset_storages.get(&asset_type)?;
-        let inner = dyn_storage.as_any().downcast_ref::<InnerAssetStorage<A>>().unwrap();
-        Some(AssetStorage { inner })
+        let inner_cell = dyn_storage
+            .as_any()
+            .downcast_ref::<RefCell<InnerAssetStorage<A>>>()
+            .unwrap();
+        Some(AssetStorage {
+            inner: inner_cell.borrow_mut(),
+            sender: &self.sender,
+        })
     }
 
     /// Gets asset storage
     pub fn storage_mut<A: Asset>(&mut self) -> Option<AssetStorageMut<'_, A>> {
         let asset_type = TypeId::of::<A>();
-        let dyn_storage = self.asset_storages.get_mut(&asset_type)?;
-        let inner = dyn_storage.as_any_mut().downcast_mut::<InnerAssetStorage<A>>().unwrap();
+        let dyn_storage = self.asset_storages.get(&asset_type)?;
+        let inner_cell = dyn_storage
+            .as_any()
+            .downcast_ref::<RefCell<InnerAssetStorage<A>>>()
+            .unwrap();
         Some(AssetStorageMut {
-            inner,
+            inner: inner_cell.borrow_mut(),
             metas: &mut self.asset_metas,
-            paths: &mut self.path_to_asset,
             sender: &mut self.sender,
         })
     }
@@ -201,6 +210,12 @@ impl AssetManager {
         for message in self.receiver.try_iter() {
             count += 1;
             match message {
+                AssetMessage::HandleCreated(asset_id) => {
+                    self.asset_metas.insert(asset_id, AssetMeta {
+                        path_hash: None,
+                        ref_count: 1,
+                    });
+                }
                 AssetMessage::HandleCloned(asset_id) => {
                     let asset_meta = self.asset_metas.get_mut(&asset_id).unwrap();
                     asset_meta.ref_count += 1;
@@ -243,6 +258,7 @@ impl Default for AssetManager {
 
 
 pub(crate) enum AssetMessage {
+    HandleCreated(AssetId),
     HandleCloned(AssetId),
     HandleDropped(AssetId),
     AssetFailedLoading(AssetId),

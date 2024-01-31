@@ -59,7 +59,7 @@ fn render_3d(game: &mut Game, ctx: RunContext) {
     let graphics_state      = game.get::<&GraphicsState>();
     let mut g3d             = game.get::<&mut g3d::G3D>();
     let mut g3d_scene       = game.get::<&mut Scene<g3d::Renderable>>();
-    let mut assets          = game.get::<&mut AssetManager>();
+    let assets              = game.get::<&AssetManager>();
 
     if ctx.is_tick() {
         let g3d_scene = &mut g3d_scene.graph;
@@ -74,7 +74,7 @@ fn render_3d(game: &mut Game, ctx: RunContext) {
         }
     };
 
-    enqueue_render(&graphics_state, &mut g3d_scene, &mut g3d, &surface_tex, ctx.partial_ticks(), &mut assets);
+    enqueue_render(&graphics_state, &mut g3d_scene, &mut g3d, &surface_tex, ctx.partial_ticks(), &assets);
     surface_tex.present();
 }
 
@@ -102,7 +102,7 @@ fn enqueue_render(
     g3d: &mut g3d::G3D,
     surface_tex: &SurfaceTexture,
     partial_ticks: f32,
-    assets: &mut AssetManager,
+    assets: &AssetManager,
 ) {
     let texture_format = graphics_state.format();
     let depth_format = graphics_state.depth_format();
@@ -117,7 +117,7 @@ fn enqueue_render(
     {
 
         let textures = assets.storage::<Texture>().unwrap();
-        let materials = assets.storage::<Material>().unwrap();
+        let mut materials = assets.storage::<Material>().unwrap();
         let meshes = assets.storage::<Mesh>().unwrap();
 
         // Flattens scene, and creates render jobs

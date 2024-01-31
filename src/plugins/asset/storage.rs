@@ -1,8 +1,9 @@
 use std::any::{Any, TypeId};
+use std::cell::{RefCell, RefMut};
 use std::marker::PhantomData;
 use std::sync::mpsc::Sender;
 use slotmap::{new_key_type, SlotMap};
-use crate::{Asset, AssetId, AssetMessage, AssetMeta, HashMap, PathHash, Readiness};
+use crate::{Asset, AssetId, AssetMessage, AssetMeta, HashMap, Readiness};
 
 /// Trait that [`AssetStorage`] must implement to be used dynamically by the [`AssetServer`].
 pub(crate) trait DynStorage {
@@ -15,18 +16,30 @@ pub(crate) trait DynStorage {
 }
 
 /// Simple contiguous storage of assets.
+/// Informs asset manager of insertions by passing messages.
 pub struct AssetStorage<'a, A> {
-    pub(crate) inner: &'a InnerAssetStorage<A>,
+    pub(crate) inner: RefMut<'a, InnerAssetStorage<A>>,
+    pub(crate) sender: &'a Sender<AssetMessage>,
 }
 
 impl<'a, A: Asset> AssetStorage<'a, A> {
 
-    pub fn get(&self, handle: &Handle<A>) -> AssetState<&A> {
-        self.inner.get(handle.id.index).unwrap().as_ref()
+    pub fn insert(&mut self, asset: A) -> Handle<A> {
+        let index = self.inner.insert(AssetState::Loaded(asset));
+        let id = AssetId {
+            asset_type: TypeId::of::<A>(),
+            index,
+        };
+        let _ = self.sender.send(AssetMessage::HandleCreated(id));
+        Handle {
+            id,
+            sender: self.sender.clone(),
+            phantom: PhantomData,
+        }
     }
 
-    pub unsafe fn get_unchecked(&self, handle: &Handle<A>) -> AssetState<&A> {
-        self.inner.get_unchecked(handle.id.index).as_ref()
+    pub fn get(&self, handle: &Handle<A>) -> AssetState<&A> {
+        self.inner.get(handle.id.index).unwrap().as_ref()
     }
 
     pub fn len(&self) -> usize {
@@ -43,11 +56,11 @@ impl<'a, A: Asset> AssetStorage<'a, A> {
 }
 
 /// Simple contiguous storage of assets.
-/// Informs asset manager of changes.
+/// Informs asset manager of insertions without passing messages.
+/// Has exclusive access to asset manager.
 pub struct AssetStorageMut<'a, A> {
-    pub(crate) inner: &'a mut InnerAssetStorage<A>,         // Internal storage of assets
+    pub(crate) inner: RefMut<'a, InnerAssetStorage<A>>,     // Internal storage of assets
     pub(crate) metas: &'a mut HashMap<AssetId, AssetMeta>,  // Metadata of assets
-    pub(crate) paths: &'a mut HashMap<PathHash, AssetId>,   // Mapping of file paths to assets
     pub(crate) sender: &'a mut Sender<AssetMessage>,
 }
 
@@ -78,14 +91,6 @@ impl<'a, A: Asset> AssetStorageMut<'a, A> {
         self.inner.get_mut(handle.id.index).unwrap().as_mut()
     }
 
-    pub fn get_weak(&self, handle: &WeakHandle<A>) -> Option<AssetState<&A>> {
-        self.inner.get(handle.id.index).map(|state| state.as_ref())
-    }
-
-    pub fn get_weak_mut(&mut self, handle: &WeakHandle<A>) -> Option<AssetState<&mut A>> {
-        self.inner.get_mut(handle.id.index).map(|state| state.as_mut())
-    }
-
     pub fn len(&self) -> usize {
         self.inner.len()
     }
@@ -101,25 +106,29 @@ impl<'a, A: Asset> AssetStorageMut<'a, A> {
 
 /// Simple contiguous storage of assets.
 pub(crate) type InnerAssetStorage<A> = SlotMap<AssetIndex, AssetState<A>>;
-impl<A: Asset> DynStorage for InnerAssetStorage<A> {
+impl<A: Asset> DynStorage for RefCell<InnerAssetStorage<A>> {
 
     fn insert_loading(&mut self) -> AssetIndex {
-        self.insert(AssetState::Loading)
+        let slf = self.get_mut();
+        slf.insert(AssetState::Loading)
     }
 
     fn finish_loading(&mut self, index: AssetIndex, asset: Box<dyn Any>) {
-        let state = self.get_mut(index).unwrap();
+        let slf = self.get_mut();
+        let state = slf.get_mut(index).unwrap();
         let asset = asset.downcast::<A>().unwrap();
         *state = AssetState::Loaded(*asset);
     }
 
     fn fail_loading(&mut self, index: AssetIndex) {
-        let state = self.get_mut(index).unwrap();
+        let slf = self.get_mut();
+        let state = slf.get_mut(index).unwrap();
         *state = AssetState::Failed;
     }
     
     fn remove(&mut self, index: AssetIndex) {
-        self.remove(index);
+        let slf = self.get_mut();
+        slf.remove(index);
     }
     fn as_any(&self) -> &dyn Any {
         self
