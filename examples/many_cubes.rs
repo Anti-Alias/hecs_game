@@ -1,7 +1,7 @@
 use std::f32::consts::TAU;
 use glam::{Vec3, Quat};
 use hecs_game::math::Transform;
-use hecs_game::{g3d, App, AppBuilder, AssetManager, Camera, CameraController, Color, EnginePlugin, FlycamMode, FlycamPlugin, Game, GraphicsState, OrthographicProjector, PerspectiveProjector, RunContext, ScalingMode, Scene, Stage, StartEvent};
+use hecs_game::{g3d, App, AssetManager, Camera, CameraController, Color, EnginePlugin, FlycamMode, FlycamPlugin, Game, GraphicsState, OrthographicProjector, PerspectiveProjector, RunContext, ScalingMode, Scene, Stage, StartEvent};
 use hecs::World;
 use rand::{SeedableRng, Rng};
 use rand::rngs::SmallRng;
@@ -12,15 +12,10 @@ fn main() {
     builder
         .plugin(EnginePlugin::default())
         .plugin(FlycamPlugin)
-        .plugin(plugin);
-    builder.run();
-}
-
-fn plugin(builder: &mut AppBuilder) {
-    builder
-        .event_handler(handle_start)
         .system(Stage::Update, rotate_cubes)
-        .tick_rate(60.0);
+        .tick_rate(60.0)
+        .event_handler(handle_start);
+    builder.run();
 }
 
 fn handle_start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
@@ -57,6 +52,8 @@ fn handle_start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
         },
     ));
 
+    let mut rng = SmallRng::seed_from_u64(100);
+
     // Creates material
     let texture = assets.load("cube_texture.png");
     let material = assets.insert(g3d::Material {
@@ -65,28 +62,27 @@ fn handle_start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
         ..Default::default()
     });
     
-    // Creates clear mesh
-    let mut blue_mesh: g3d::MeshData = g3d::MeshData::from(g3d::Cuboid {
+    // Creates mesh
+    let mesh: g3d::MeshData = g3d::MeshData::from(g3d::Cuboid {
         center: Vec3::new(0.0, 0.0, 0.0),
         half_extents: Vec3::new(0.5, 0.5, 0.5),
-        color: Color::BLUE,
+        color: Color::WHITE,
     });
-    blue_mesh.colors = None;
-    let blue_mesh = g3d::Mesh::from_data(&blue_mesh, &state.device);
-    let blue_mesh = assets.insert(blue_mesh);
+    let mesh = g3d::Mesh::from_data(&mesh, &state.device);
+    let mesh = assets.insert(mesh);
 
-    // Creates red mesh
-    let red_mesh: g3d::MeshData = g3d::MeshData::from(g3d::Cuboid {
+    // Creates colored mesh
+    let mut colored_mesh: g3d::MeshData = g3d::MeshData::from(g3d::Cuboid {
         center: Vec3::new(0.0, 0.0, 0.0),
         half_extents: Vec3::new(0.5, 0.5, 0.5),
-        color: Color::RED,
+        color: Color::WHITE,
     });
-    let red_mesh = g3d::Mesh::from_data(&red_mesh, &state.device);
-    let red_mesh = assets.insert(red_mesh);
+    colored_mesh.colors = Some(rand_vertex_colors(&mut rng));
+    let colored_mesh = g3d::Mesh::from_data(&colored_mesh, &state.device);
+    let colored_mesh = assets.insert(colored_mesh);
     
     // Spawns cubes
-    let mut rng = SmallRng::seed_from_u64(48);
-    for _ in 0..10 {
+    for _ in 0..20 {
 
         // Creates random transform
         let scale = 0.2 + rng.gen::<f32>() * 0.2;
@@ -111,8 +107,8 @@ fn handle_start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
 
         // Selects random mesh
         let mesh = match rng.gen::<bool>() {
-            true => blue_mesh.clone(),
-            false => red_mesh.clone(),
+            true => mesh.clone(),
+            false => colored_mesh.clone(),
         };
 
         // Spawns cube with above data
@@ -122,6 +118,19 @@ fn handle_start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
         let renderable = scene.insert(renderable);
         world.spawn((renderable, transform, rotator));
     }
+}
+
+fn rand_vertex_colors(rng: &mut SmallRng) -> Vec<Color> {
+    let mut vertices = Vec::with_capacity(24);
+    for _ in 0..24 {
+        vertices.push(Color {
+            r: rng.gen::<f32>() * 2.0 - 1.0,
+            g: rng.gen::<f32>() * 2.0 - 1.0,
+            b: rng.gen::<f32>() * 2.0 - 1.0,
+            a: 1.0,
+        })
+    }
+    vertices
 }
 
 
