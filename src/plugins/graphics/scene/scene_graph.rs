@@ -32,6 +32,15 @@ impl<R: HasId> SceneGraph<R> {
     }
 
     /**
+     * Iterator over all root  nodes.
+     */
+    pub fn root_nodes(&self) -> impl Iterator<Item = &Node<R>> + '_ {
+        self.root_ids
+            .iter()
+            .flat_map(|root_id| self.get_node(*root_id))
+    }
+
+    /**
      * Iterator over all objects in the scene in no particular order.
      */
     pub fn iter(&self) -> impl Iterator<Item = &R> {
@@ -85,11 +94,21 @@ impl<R: HasId> SceneGraph<R> {
 
     /**
      * Gets an object by id.
+     * Unwraps it from its node for convenience.
      */
     pub fn get(&self, node_id: R::Id) -> Option<&R> {
         self.nodes
             .get(node_id)
             .map(|node| &node.get().value)
+    }
+
+    /**
+     * Gets an object by id, wrapped in its node.
+     */
+    pub fn get_node(&self, node_id: R::Id) -> Option<&Node<R>> {
+        self.nodes
+            .get(node_id)
+            .map(|node| node.get())
     }
 
     /**
@@ -99,6 +118,15 @@ impl<R: HasId> SceneGraph<R> {
         self.nodes
             .get_mut(node_id)
             .map(|node| &mut node.get_mut().value)
+    }
+
+    /**
+     * Gets an object by id, wrapped in its node.
+     */
+    pub fn get_node_mut(&mut self, node_id: R::Id) -> Option<&mut Node<R>> {
+        self.nodes
+            .get_mut(node_id)
+            .map(|node| node.get_mut())
     }
 
     /**
@@ -128,37 +156,6 @@ impl<R: HasId> SceneGraph<R> {
             self.root_ids.remove(idx);
         }
         remove(node_id, &mut self.nodes)
-    }
-
-     /**
-     * Removes a node by id.
-     * Its children, if any, are reparented to the removed node's parent.
-     * If the removed node did not have a parent, they become root nodes.
-     */
-    pub fn remove_reparent(&mut self, node_id: R::Id) {
-        let Some(mut node) = self.nodes.remove(node_id) else { return };
-
-        // Children are reparented
-        if let Some(parent_id) = node.get().parent_id {
-            let parent = self.nodes.get_mut(parent_id).unwrap();
-            parent.get_mut().children_ids.extend_from_slice(&node.get().children_ids);
-            for child_id in &node.get().children_ids {
-                let child = self.nodes.get_mut(*child_id).unwrap();
-                child.get_mut().parent_id = Some(parent_id);
-            }
-        }
-
-        // Children become roots
-        else {
-            for child_id in &node.get().children_ids {
-                let child = self.nodes.get_mut(*child_id).unwrap();
-                child.get_mut().parent_id = None;
-                self.root_ids.push(node_id);
-            }
-        }
-
-        node.get_mut().parent_id = None;
-        node.get_mut().children_ids.clear();
     }
 
     /**
@@ -237,10 +234,25 @@ impl<R: HasId> NodeWrapper<R> {
 }
 
 /// Container of a scene graph value, and a reference to its parent and children.
-struct Node<R: HasId> {
+pub struct Node<R: HasId> {
     value: R,
     parent_id: Option<R::Id>,
     children_ids: SmallVec<[R::Id; 8]>,
+}
+
+impl<R: HasId> Node<R> {
+    pub fn value(&self) -> &R {
+        &self.value
+    }
+    pub fn value_mut(&mut self) -> &mut R {
+        &mut self.value
+    }
+    pub fn parent_id(&self) -> Option<&R::Id> {
+        self.parent_id.as_ref()
+    }
+    pub fn children_ids(&self) -> &[R::Id] {
+        &self.children_ids
+    }
 }
 
 new_key_type! {

@@ -1,5 +1,5 @@
 use tracing::instrument;
-use crate::{tracker_channel, HasId, SceneGraph, SceneGraphError, Tracker, TrackerReceiver, TrackerSender};
+use crate::{tracker_channel, HasId, Node, SceneGraph, SceneGraphError, Tracker, TrackerReceiver, TrackerSender};
 
 /// Wrapper for a [`SceneGraph`] which adds tracking.
 pub struct Scene<R: HasId> {
@@ -21,6 +21,10 @@ impl<R: HasId> Scene<R> {
 
     pub fn root_ids(&self) -> &[R::Id] {
         self.graph.root_ids()
+    }
+
+    pub fn root_nodes(&self) -> impl Iterator<Item = &Node<R>> + '_ {
+        self.graph.root_nodes()
     }
 
     /**
@@ -55,8 +59,16 @@ impl<R: HasId> Scene<R> {
         self.graph.get(node_id)
     }
 
+    pub fn get_node(&self, node_id: R::Id) -> Option<&Node<R>> {
+        self.graph.get_node(node_id)
+    }
+
     pub fn get_mut(&mut self, node_id: R::Id) -> Option<&mut R> {
         self.graph.get_mut(node_id)
+    }
+
+    pub fn get_node_mut(&mut self, node_id: R::Id) -> Option<&mut Node<R>> {
+        self.graph.get_node_mut(node_id)
     }
 
     pub fn contains(&mut self, node_id: R::Id) -> bool {
@@ -68,15 +80,6 @@ impl<R: HasId> Scene<R> {
      */
     pub fn remove(&mut self, node_id: R::Id) {
         self.graph.remove(node_id);
-    }
-
-     /**
-     * Removes a node by id.
-     * Its children, if any, are reparented to the removed node's parent.
-     * If the removed node did not have a parent, they become root nodes.
-     */
-    pub fn remove_reparent(&mut self, node_id: R::Id) {
-        self.graph.remove_reparent(node_id);
     }
 
     /**
