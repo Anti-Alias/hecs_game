@@ -13,7 +13,6 @@ fn main() {
         .plugin(EnginePlugin::default())
         .plugin(FlycamPlugin)
         .system(Stage::Update, rotate_cubes)
-        .tick_rate(60.0)
         .event_handler(handle_start);
     builder.run();
 }
