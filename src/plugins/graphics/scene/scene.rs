@@ -19,10 +19,12 @@ impl<R: HasId> Scene<R> {
         }
     }
 
+    #[inline]
     pub fn root_ids(&self) -> &[R::Id] {
         self.graph.root_ids()
     }
 
+    #[inline]
     pub fn root_nodes(&self) -> impl Iterator<Item = &Node<R>> + '_ {
         self.graph.root_nodes()
     }

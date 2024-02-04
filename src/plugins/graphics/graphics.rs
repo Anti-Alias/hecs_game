@@ -1,7 +1,7 @@
 use hecs::World;
 use tracing::instrument;
 use wgpu::{Color as WgpuColor, CommandEncoderDescriptor, Device, LoadOp, Operations, RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPassDescriptor, StoreOp, SurfaceTexture};
-use crate::g3d::{Material, Mesh, Renderable};
+use crate::g3d::{Material, Mesh};
 use crate::math::Transform;
 use crate::{g3d, AppBuilder, AssetManager, AssetStorage, Camera, Game, GraphicsState, Plugin, RunContext, Scene, SceneGraph, Stage, Texture, TextureLoader, Tracker};
 

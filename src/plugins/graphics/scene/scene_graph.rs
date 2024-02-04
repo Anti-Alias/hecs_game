@@ -35,9 +35,11 @@ impl<R: HasId> SceneGraph<R> {
      * Iterator over all root  nodes.
      */
     pub fn root_nodes(&self) -> impl Iterator<Item = &Node<R>> + '_ {
-        self.root_ids
-            .iter()
-            .flat_map(|root_id| self.get_node(*root_id))
+        unsafe {
+            self.root_ids
+                .iter()
+                .map(|root_id| self.get_node_unchecked(*root_id))
+        }
     }
 
     /**
@@ -109,6 +111,13 @@ impl<R: HasId> SceneGraph<R> {
         self.nodes
             .get(node_id)
             .map(|node| node.get())
+    }
+
+    /**
+     * Gets an object by id, wrapped in its node.
+     */
+    pub unsafe fn get_node_unchecked(&self, node_id: R::Id) -> &Node<R> {
+        &self.nodes.get_unchecked(node_id).get()
     }
 
     /**

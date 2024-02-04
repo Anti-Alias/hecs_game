@@ -211,10 +211,10 @@ impl G3D {
 /// All renderables have their transforms propagated.
 /// All renderables are put into separate flat vecs.
 #[instrument(skip_all)]
+#[inline]
 pub(crate) fn flatten_scene<'a>(scene: &'a Scene<Renderable>, t: f32) -> FlatScene<'a> {
     let mut flat_scene = FlatScene::with_capacities(scene.len(), 1);
-    for root_node_id in scene.root_ids() {
-        let root_node = scene.get_node(*root_node_id).unwrap();
+    for root_node in scene.root_nodes() {
         let renderable = root_node.value();
         let global_transform = renderable.previous_transform.lerp(renderable.transform, t);
         let global_transform = Mat4::from(global_transform);
@@ -226,7 +226,7 @@ pub(crate) fn flatten_scene<'a>(scene: &'a Scene<Renderable>, t: f32) -> FlatSce
     flat_scene
 }
 
-
+#[inline]
 fn flatten_scene_at<'a>(node_id: NodeId, parent_transform: Mat4, scene: &'a Scene<Renderable>, t: f32, flat_scene: &mut FlatScene<'a>) {
     let node = scene.get_node(node_id).unwrap();
     for child_id in node.children_ids() {
