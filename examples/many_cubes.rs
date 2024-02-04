@@ -81,7 +81,7 @@ fn handle_start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
     let colored_mesh = assets.insert(colored_mesh);
     
     // Spawns cubes
-    for _ in 0..20 {
+    for _ in 0..100_000 {
 
         // Creates random transform
         let scale = 0.2 + rng.gen::<f32>() * 0.2;

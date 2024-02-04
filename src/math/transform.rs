@@ -19,36 +19,43 @@ impl Transform {
         scale: Vec3::new(1.0, 1.0, 1.0),
     };
 
+    #[inline]
     pub fn with_translation(mut self, translation: Vec3) -> Self {
         self.translation = translation;
         self
     }
 
+    #[inline]
     pub fn with_xyz(mut self, x: f32, y: f32, z: f32) -> Self {
         self.translation = Vec3::new(x, y, z);
         self
     }
 
+    #[inline]
     pub fn with_scale(mut self, scale: Vec3) -> Self {
         self.scale = scale;
         self
     }
 
+    #[inline]
     pub fn with_scale_xyz(mut self, x: f32, y: f32, z: f32) -> Self {
         self.scale = Vec3::new(x, y, z);
         self
     }
 
+    #[inline]
     pub fn with_rotation(mut self, rotation: Quat) -> Self {
         self.rotation = rotation;
         self
     }
 
+    #[inline]
     pub fn with_euler(mut self, rot: EulerRot, a: f32, b: f32, c: f32) -> Self {
         self.rotation = Quat::from_euler(rot, a, b, c);
         self
     }
 
+    #[inline]
     pub fn lerp(self, other: Transform, s: f32) -> Transform {
         Transform {
             translation: self.translation.lerp(other.translation, s),
@@ -89,6 +96,7 @@ impl From<Transform> for Mat4 {
 }
 
 
+#[inline]
 pub fn lerp_matrices(a: Mat4, b: Mat4, t: f32) -> Mat4 {
     let col0 = a.col(0).lerp(b.col(0), t);
     let col1 = a.col(1).lerp(b.col(1), t);

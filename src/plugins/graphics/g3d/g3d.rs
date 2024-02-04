@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::mem::size_of;
 use std::sync::Arc;
-use glam::{Mat4, Affine3A, Vec3};
+use glam::{Mat4, Vec3};
 use tracing::instrument;
 use derive_more::From;
 use wgpu::{BlendState, Buffer, BufferDescriptor, BufferUsages, ColorTargetState, ColorWrites, CompareFunction, DepthBiasState, DepthStencilState, Device, Face, FragmentState, FrontFace, PipelineLayoutDescriptor, PolygonMode, PrimitiveState, PrimitiveTopology, Queue, RenderPass, RenderPipeline, RenderPipelineDescriptor, ShaderModuleDescriptor, ShaderSource, StencilState, TextureFormat, VertexAttribute, VertexBufferLayout, VertexFormat, VertexState, VertexStepMode};
@@ -211,30 +211,52 @@ impl G3D {
 /// All renderables have their transforms propagated.
 /// All renderables are put into separate flat vecs.
 #[instrument(skip_all)]
+#[inline]
 pub(crate) fn flatten_scene<'a>(scene: &'a Scene<Renderable>, t: f32) -> FlatScene<'a> {
     let mut flat_scene = FlatScene::with_capacities(scene.len(), 1);
-    let init_transf = Mat4::IDENTITY;
-    scene.graph.propagate(init_transf, |parent_transf, renderable| {
-        let local_transform = renderable.previous_transform.lerp(renderable.transform, t);
-        let local_affine = Affine3A::from(local_transform);
-        let global_transform = parent_transf * local_affine;
-        match &renderable.kind {
-            RenderableKind::MatMesh(mat_mesh) => flat_scene.flat_mat_meshes.push(FlatMatMesh {
-                mat_mesh,
-                global_transform,
-                volume: renderable.volume,
-            }),
-            RenderableKind::Camera(camera) => flat_scene.flat_cams.push(FlatCamera {
-                global_transform,
-                _target: &camera.target,
-                projection: lerp_matrices(camera.previous_projection, camera.projection, t),
-                viewport: camera.viewport,
-            }),
-            RenderableKind::Empty => {},
+    for root_node in scene.root_nodes() {
+        let renderable = root_node.value();
+        let global_transform = renderable.previous_transform.lerp(renderable.transform, t);
+        let global_transform = Mat4::from(global_transform);
+        add_renderable(&mut flat_scene, renderable, global_transform, t);
+        for child_id in root_node.children_ids() {
+            flatten_scene_at(*child_id, global_transform, scene, t, &mut flat_scene);
         }
-        global_transform
-    });
+    }
     flat_scene
+}
+
+#[inline]
+fn flatten_scene_at<'a>(node_id: NodeId, parent_transform: Mat4, scene: &'a Scene<Renderable>, t: f32, flat_scene: &mut FlatScene<'a>) {
+    let node = scene.get_node(node_id).unwrap();
+    for child_id in node.children_ids() {
+        let node = scene.get_node(*child_id).unwrap();
+        let renderable = node.value();
+        let local_transform = renderable.previous_transform.lerp(renderable.transform, t);
+        let local_transform = Mat4::from(local_transform);
+        let global_transform = parent_transform * local_transform;
+        add_renderable(flat_scene, renderable, global_transform, t);
+        for child_id in node.children_ids() {
+            flatten_scene_at(*child_id, global_transform, scene, t, flat_scene);
+        }
+    }
+}
+
+fn add_renderable<'a>(flat_scene: &mut FlatScene<'a>, renderable: &'a Renderable, global_transform: Mat4, t: f32) {
+    match &renderable.kind {
+        RenderableKind::MatMesh(mat_mesh) => flat_scene.flat_mat_meshes.push(FlatMatMesh {
+            mat_mesh,
+            global_transform,
+            volume: renderable.volume,
+        }),
+        RenderableKind::Camera(camera) => flat_scene.flat_cams.push(FlatCamera {
+            global_transform,
+            _target: &camera.target,
+            projection: lerp_matrices(camera.previous_projection, camera.projection, t),
+            viewport: camera.viewport,
+        }),
+        RenderableKind::Empty => {},
+    }
 }
 
 // Collection of render jobs to render later.
