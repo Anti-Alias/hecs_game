@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::mem::size_of;
 use std::sync::Arc;
-use glam::{Mat4, Vec3};
+use glam::{Affine3A, Mat4, Vec3};
 use tracing::instrument;
 use derive_more::From;
 use wgpu::{BlendState, Buffer, BufferDescriptor, BufferUsages, ColorTargetState, ColorWrites, CompareFunction, DepthBiasState, DepthStencilState, Device, Face, FragmentState, FrontFace, PipelineLayoutDescriptor, PolygonMode, PrimitiveState, PrimitiveTopology, Queue, RenderPass, RenderPipeline, RenderPipelineDescriptor, ShaderModuleDescriptor, ShaderSource, StencilState, TextureFormat, VertexAttribute, VertexBufferLayout, VertexFormat, VertexState, VertexStepMode};
@@ -94,13 +94,15 @@ impl G3D {
                 // Skips mat mesh if it has a bounding volume and it not in the frustum.
                 match flat_mat_mesh.volume {
                     Some(Volume::Sphere(sphere)) => {
-                        let global_sphere = sphere.transform(flat_mat_mesh.global_transform);
+                        let mat = Mat4::from(flat_mat_mesh.global_transform);
+                        let global_sphere = sphere.transform(mat);
                         if !frustum.contains_sphere(global_sphere) {
                             continue;
                         }
                     },
                     Some(Volume::AABB(aabb)) => {
-                        let global_aabb = aabb.transform(flat_mat_mesh.global_transform);
+                        let mat = Mat4::from(flat_mat_mesh.global_transform);
+                        let global_aabb = aabb.transform(mat);
                         if !frustum.contains_aabb(global_aabb) {
                             continue;
                         }
@@ -182,7 +184,6 @@ impl G3D {
 
         for instance_batch in job.instance_batches {
 
-
             // Gets material, mesh and pipeline for rendering.
             let (material, mesh) = (instance_batch.material, instance_batch.mesh);
 
@@ -217,7 +218,7 @@ pub(crate) fn flatten_scene<'a>(scene: &'a Scene<Renderable>, t: f32) -> FlatSce
     for root_node in scene.root_nodes() {
         let renderable = root_node.value();
         let global_transform = renderable.previous_transform.lerp(renderable.transform, t);
-        let global_transform = Mat4::from(global_transform);
+        let global_transform = Affine3A::from(global_transform);
         add_renderable(&mut flat_scene, renderable, global_transform, t);
         for child_id in root_node.children_ids() {
             flatten_scene_at(*child_id, global_transform, scene, t, &mut flat_scene);
@@ -227,13 +228,13 @@ pub(crate) fn flatten_scene<'a>(scene: &'a Scene<Renderable>, t: f32) -> FlatSce
 }
 
 #[inline]
-fn flatten_scene_at<'a>(node_id: NodeId, parent_transform: Mat4, scene: &'a Scene<Renderable>, t: f32, flat_scene: &mut FlatScene<'a>) {
+fn flatten_scene_at<'a>(node_id: NodeId, parent_transform: Affine3A, scene: &'a Scene<Renderable>, t: f32, flat_scene: &mut FlatScene<'a>) {
     let node = scene.get_node(node_id).unwrap();
     for child_id in node.children_ids() {
         let node = scene.get_node(*child_id).unwrap();
         let renderable = node.value();
         let local_transform = renderable.previous_transform.lerp(renderable.transform, t);
-        let local_transform = Mat4::from(local_transform);
+        let local_transform = Affine3A::from(local_transform);
         let global_transform = parent_transform * local_transform;
         add_renderable(flat_scene, renderable, global_transform, t);
         for child_id in node.children_ids() {
@@ -242,7 +243,7 @@ fn flatten_scene_at<'a>(node_id: NodeId, parent_transform: Mat4, scene: &'a Scen
     }
 }
 
-fn add_renderable<'a>(flat_scene: &mut FlatScene<'a>, renderable: &'a Renderable, global_transform: Mat4, t: f32) {
+fn add_renderable<'a>(flat_scene: &mut FlatScene<'a>, renderable: &'a Renderable, global_transform: Affine3A, t: f32) {
     match &renderable.kind {
         RenderableKind::MatMesh(mat_mesh) => flat_scene.flat_mat_meshes.push(FlatMatMesh {
             mat_mesh,
@@ -441,7 +442,7 @@ pub struct MatMesh(Handle<Material>, Handle<Mesh>);
 /// MatMesh with its transform propagated.
 pub struct FlatMatMesh<'a> {
     mat_mesh: &'a MatMesh,
-    global_transform: Mat4,
+    global_transform: Affine3A,
     volume: Option<Volume>,
 }
 
@@ -449,7 +450,7 @@ pub struct FlatMatMesh<'a> {
 pub struct FlatCamera<'a> {
     _target: &'a CameraTarget,
     projection: Mat4,
-    global_transform: Mat4,
+    global_transform: Affine3A,
     viewport: Option<Rect>,
 }
 
