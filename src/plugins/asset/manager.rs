@@ -1,6 +1,6 @@
-use crate::HashMap;
+use crate::{DynAssetValue, HashMap};
 use derive_more::*;
-use std::any::{Any, TypeId};
+use std::any::TypeId;
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::marker::PhantomData;
@@ -112,7 +112,7 @@ impl AssetManager {
 
     /// Loads an asset in the background, and returns a handle.
     /// Contents of handle can be fetched from underlying storage once loading finishes.
-    pub fn load<A, P>(&mut self, path: P) -> Handle<A>
+    pub fn load<A, P>(&self, path: P) -> Handle<A>
     where
         A: Asset,
         P: AsRef<str>,
@@ -123,13 +123,13 @@ impl AssetManager {
     /// Loads an asset in the background, and returns a handle.
     /// Contents of handle can be fetched from underlying storage once loading finishes.
     /// Assumes that path_hash is the correct hash of path.
-    pub fn fast_load<A: Asset>(&mut self, path: &str, path_hash: PathHash) -> Handle<A> {
+    pub fn fast_load<A: Asset>(&self, path: &str, path_hash: PathHash) -> Handle<A> {
         self.try_fast_load(path, path_hash).unwrap()
     }
 
     /// Loads an asset in the background, and returns a handle.
     /// Contents of handle can be fetched from underlying storage once loading finishes.
-    pub fn try_load<A, P>(&mut self, path: P) -> Result<Handle<A>, LoadError>
+    pub fn try_load<A, P>(&self, path: P) -> Result<Handle<A>, LoadError>
     where
         A: Asset,
         P: AsRef<str>,
@@ -142,7 +142,7 @@ impl AssetManager {
     /// Loads an asset in the background, and returns a handle.
     /// Contents of handle can be fetched from underlying storage once loading finishes.
     /// Assumes that path_hash is the hash of path.
-    pub fn try_fast_load<A: Asset>(&mut self, path: &str, path_hash: PathHash) -> Result<Handle<A>, LoadError> {
+    pub fn try_fast_load<A: Asset>(&self, path: &str, path_hash: PathHash) -> Result<Handle<A>, LoadError> {
         
         // Returns cloned handle if already stored.
         let asset_type = TypeId::of::<A>();
@@ -150,8 +150,7 @@ impl AssetManager {
             if asset_id.asset_type != asset_type {
                 return Err(LoadError::IncorrectAssetType);
             }
-            let asset_meta = self.asset_metas.get_mut(asset_id).unwrap();
-            asset_meta.ref_count += 1;
+            let _ = self.sender.send(AssetMessage::HandleCloned(*asset_id));
             return Ok(Handle::new(*asset_id, self.sender.clone()));
         }
 
@@ -160,7 +159,7 @@ impl AssetManager {
         if let Some(path_prefix) = &self.path_prefix {
             path.body = format!("{}/{}", path_prefix, path.body);
         }
-        let protocol = match self.protocols.get_mut(&path.protocol) {
+        let protocol = match self.protocols.get(&path.protocol) {
             Some(protocol) => protocol.clone(),
             None => return Err(LoadError::NoSuchProtocol),
         };
@@ -170,16 +169,12 @@ impl AssetManager {
         };
         
         // Inserts new handle in "loading" state.
-        let dyn_storage = match self.asset_storages.get_mut(&asset_type) {
+        let dyn_storage = match self.asset_storages.get(&asset_type) {
             Some(dyn_storage) => dyn_storage,
             None => return Err(LoadError::NoSuchStorage),
         };
         let asset_id = AssetId { asset_type, index: dyn_storage.insert_loading() };
-        self.path_to_asset.insert(path_hash, asset_id);
-        self.asset_metas.insert(asset_id, AssetMeta {
-            path_hash: Some(path_hash),
-            ref_count: 1,
-        });
+        let _ = self.sender.send(AssetMessage::HandleCreated { asset_id, path_hash: Some(path_hash) });
 
         // Loads asset in background thread.
         let sender = self.sender.clone();
@@ -192,7 +187,7 @@ impl AssetManager {
                     return;
                 },
             };
-            let dyn_asset = match loader.dyn_load(&bytes, &path) {
+            let dyn_asset_value = match loader.dyn_load(&bytes, &path) {
                 Ok(dyn_asset) => dyn_asset,
                 Err(err) => {
                     log::error!("{err}");
@@ -200,7 +195,7 @@ impl AssetManager {
                     return;
                 },
             };
-            let _ = sender.send(AssetMessage::AssetFinishedLoading(asset_id, dyn_asset));
+            let _ = sender.send(AssetMessage::AssetFinishedLoading { asset_id, dyn_asset_value });
         });
 
         Ok(Handle {
@@ -219,11 +214,14 @@ impl AssetManager {
         for message in self.receiver.try_iter() {
             count += 1;
             match message {
-                AssetMessage::HandleCreated(asset_id) => {
+                AssetMessage::HandleCreated { asset_id, path_hash } => {
                     self.asset_metas.insert(asset_id, AssetMeta {
-                        path_hash: None,
+                        path_hash,
                         ref_count: 1,
                     });
+                    if let Some(path_hash) = path_hash {
+                        self.path_to_asset.insert(path_hash, asset_id);
+                    }
                 }
                 AssetMessage::HandleCloned(asset_id) => {
                     let asset_meta = self.asset_metas.get_mut(&asset_id).unwrap();
@@ -237,7 +235,7 @@ impl AssetManager {
                     let asset_meta = asset_meta_entry.get_mut();
                     asset_meta.ref_count -= 1;
                     if asset_meta.ref_count == 0 {
-                        let storage = self.asset_storages.get_mut(&asset_id.asset_type).unwrap();
+                        let storage = self.asset_storages.get(&asset_id.asset_type).unwrap();
                         storage.remove(asset_id.index);
                         if let Some(path_hash) = asset_meta.path_hash {
                             self.path_to_asset.remove(&path_hash);
@@ -245,12 +243,13 @@ impl AssetManager {
                         asset_meta_entry.remove();
                     }
                 },
-                AssetMessage::AssetFinishedLoading(asset_id, dyn_asset) => {
-                    let storage = self.asset_storages.get_mut(&asset_id.asset_type).unwrap();
+                AssetMessage::AssetFinishedLoading { asset_id, mut dyn_asset_value } => {
+                    let storage = self.asset_storages.get(&asset_id.asset_type).unwrap();
+                    let dyn_asset = dyn_asset_value.produce(self);
                     storage.finish_loading(asset_id.index, dyn_asset);
                 },
                 AssetMessage::AssetFailedLoading(asset_id) => {
-                    let storage = self.asset_storages.get_mut(&asset_id.asset_type).unwrap();
+                    let storage = self.asset_storages.get(&asset_id.asset_type).unwrap();
                     storage.fail_loading(asset_id.index);
                 },
             }
@@ -267,11 +266,17 @@ impl Default for AssetManager {
 
 
 pub(crate) enum AssetMessage {
-    HandleCreated(AssetId),
+    HandleCreated {
+        asset_id: AssetId,
+        path_hash: Option<PathHash>,
+    },
     HandleCloned(AssetId),
     HandleDropped(AssetId),
     AssetFailedLoading(AssetId),
-    AssetFinishedLoading(AssetId, Box<dyn Any + Send + Sync + 'static>),
+    AssetFinishedLoading {
+        asset_id: AssetId,
+        dyn_asset_value: Box<dyn DynAssetValue>,
+    },
 }
 
 #[derive(Error, Debug, Display, Clone, Eq, PartialEq)]

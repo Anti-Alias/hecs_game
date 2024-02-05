@@ -7,10 +7,10 @@ use crate::{Asset, AssetId, AssetMessage, AssetMeta, HashMap, Readiness};
 
 /// Trait that [`AssetStorage`] must implement to be used dynamically by the [`AssetServer`].
 pub(crate) trait DynStorage {
-    fn insert_loading(&mut self) -> AssetIndex;
-    fn finish_loading(&mut self, index: AssetIndex, asset: Box<dyn Any>);
-    fn fail_loading(&mut self, index: AssetIndex);
-    fn remove(&mut self, index: AssetIndex);
+    fn insert_loading(&self) -> AssetIndex;
+    fn finish_loading(&self, index: AssetIndex, asset: Box<dyn Any>);
+    fn fail_loading(&self, index: AssetIndex);
+    fn remove(&self, index: AssetIndex);
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }
@@ -30,7 +30,7 @@ impl<'a, A: Asset> AssetStorage<'a, A> {
             asset_type: TypeId::of::<A>(),
             index,
         };
-        let _ = self.sender.send(AssetMessage::HandleCreated(id));
+        let _ = self.sender.send(AssetMessage::HandleCreated { asset_id: id, path_hash: None });
         Handle {
             id,
             sender: self.sender.clone(),
@@ -116,26 +116,26 @@ impl<'a, A: Asset> AssetStorageMut<'a, A> {
 pub(crate) type InnerAssetStorage<A> = SlotMap<AssetIndex, AssetState<A>>;
 impl<A: Asset> DynStorage for RefCell<InnerAssetStorage<A>> {
 
-    fn insert_loading(&mut self) -> AssetIndex {
-        let slf = self.get_mut();
+    fn insert_loading(&self) -> AssetIndex {
+        let mut slf = self.borrow_mut();
         slf.insert(AssetState::Loading)
     }
 
-    fn finish_loading(&mut self, index: AssetIndex, asset: Box<dyn Any>) {
-        let slf = self.get_mut();
+    fn finish_loading(&self, index: AssetIndex, asset: Box<dyn Any>) {
+        let mut slf = self.borrow_mut();
         let state = slf.get_mut(index).unwrap();
         let asset = asset.downcast::<A>().unwrap();
         *state = AssetState::Loaded(*asset);
     }
 
-    fn fail_loading(&mut self, index: AssetIndex) {
-        let slf = self.get_mut();
+    fn fail_loading(&self, index: AssetIndex) {
+        let mut slf = self.borrow_mut();
         let state = slf.get_mut(index).unwrap();
         *state = AssetState::Failed;
     }
     
-    fn remove(&mut self, index: AssetIndex) {
-        let slf = self.get_mut();
+    fn remove(&self, index: AssetIndex) {
+        let mut slf = self.borrow_mut();
         slf.remove(index);
     }
     fn as_any(&self) -> &dyn Any {

@@ -1,4 +1,4 @@
-use crate::{Asset, AssetLoader, Handle, Tileset};
+use crate::{Asset, AssetLoader, AssetValue, Handle, Tileset};
 use derive_more::*;
 use roxmltree::{Document, Node};
 
@@ -9,7 +9,6 @@ pub struct TiledMap {
     pub height: u32,
     pub tilewidth: u32,
     pub tileheight: u32,
-
     pub tilesets: Vec<Handle<Tileset>>,
 }
 
@@ -18,7 +17,7 @@ impl AssetLoader for TmxLoader {
 
     type AssetType = TiledMap;
 
-    fn load(&self, bytes: &[u8], _path: &crate::AssetPath) -> anyhow::Result<Self::AssetType> {
+    fn load(&self, bytes: &[u8], _path: &crate::AssetPath) -> anyhow::Result<AssetValue<Self::AssetType>> {
         let mut map = TiledMap::default();
         let source = std::str::from_utf8(bytes)?;
         let doc = Document::parse(source)?;
@@ -30,7 +29,7 @@ impl AssetLoader for TmxLoader {
                 _ => Err(TiledMapError::UnexpectedTagError { tag_name: tag_name.into() })
             }?
         }
-        Ok(map)
+        Ok(AssetValue::Asset(map))
     }
 
     fn extensions(&self) -> &[&str] {
@@ -63,8 +62,6 @@ pub enum TiledMapError {
 
 #[cfg(test)]
 mod test {
-    use crate::{AssetLoader, TiledMap};
-
     use super::TmxLoader;
 
     #[test]

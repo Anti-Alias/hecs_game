@@ -3,7 +3,7 @@ use crate::{AssetIndex, AssetManager};
 
 /// A shareable resource that may be loaded from a file.
 /// An asset with dependent assets will usually need to implement the readiness method.
-pub trait Asset: Any + Send + Sync {
+pub trait Asset: Any + Send + Sync + 'static {
     fn readiness(&self, _assets: &AssetManager) -> Readiness { Readiness::Ready }
 }
 

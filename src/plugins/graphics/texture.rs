@@ -5,7 +5,7 @@ use wgpu::{AddressMode, BindGroupEntry, BindGroupLayoutEntry, BindingResource, B
 use image::io::Reader as ImageReader;
 use derive_more::*;
 use bytemuck::cast_slice;
-use crate::{Asset, AssetLoader, AssetPath};
+use crate::{Asset, AssetLoader, AssetPath, AssetValue};
 
 pub struct TextureLoader {
     pub device: Arc<Device>,
@@ -16,7 +16,7 @@ impl AssetLoader for TextureLoader {
 
     type AssetType = Texture;
 
-    fn load(&self, bytes: &[u8], path: &AssetPath) -> anyhow::Result<Self::AssetType> {
+    fn load(&self, bytes: &[u8], path: &AssetPath) -> anyhow::Result<AssetValue<Self::AssetType>> {
         let format = match ImageFormat::from_extension(&path.extension) {
             Some(format) => Ok(format),
             None => Err(LoadError::UnsupportedFileExtension),
@@ -63,7 +63,8 @@ impl AssetLoader for TextureLoader {
             mipmap_filter: FilterMode::Nearest,
             ..Default::default()
         });
-        Ok(Texture { view, sampler })
+        let value = AssetValue::Asset(Texture { view, sampler });
+        Ok(value)
     }
 
     fn extensions(&self) -> &[&str] {
