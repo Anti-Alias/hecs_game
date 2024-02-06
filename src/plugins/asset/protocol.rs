@@ -34,20 +34,15 @@ impl Protocol for FileProtocol {
  * Useful for testing purposes.
  */
 #[derive(Clone, Debug)]
-pub struct RawProtocol(Vec<u8>);
-impl From<String> for RawProtocol {
-    fn from(value: String) -> Self {
-        Self(value.into_bytes())
-    }
-}
-impl From<&str> for RawProtocol {
-    fn from(value: &str) -> Self {
-        Self(value.as_bytes().to_vec())
+pub struct RawProtocol(pub &'static [u8]);
+impl From<&'static str> for RawProtocol {
+    fn from(value: &'static str) -> Self {
+        Self(value.as_bytes())
     }
 }
 impl Protocol for RawProtocol {
     fn name(&self) -> &str { return "raw" }
     fn read(&self, _path: &AssetPath) -> anyhow::Result<Vec<u8>> {
-        Ok(self.0.clone())
+        Ok(self.0.to_vec())
     }
 }

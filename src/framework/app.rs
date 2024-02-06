@@ -73,24 +73,24 @@ impl App {
 
         // Runs per-tick stages
         for _ in 0..num_ticks {
-            self.run_stage(Stage::PreUpdate, self.tick_duration, true, partial_ticks);
-            self.run_stage(Stage::Update, self.tick_duration, true, partial_ticks);
-            self.run_stage(Stage::UpdatePhysics, self.tick_duration, true, partial_ticks);
-            self.run_stage(Stage::PostUpdate, self.tick_duration, true, partial_ticks);
-            self.run_stage(Stage::Cleanup, self.tick_duration, true, partial_ticks);
+            self.run_stage(Stage::PreUpdate, self.tick_duration, true, self.tick, partial_ticks);
+            self.run_stage(Stage::Update, self.tick_duration, true, self.tick, partial_ticks);
+            self.run_stage(Stage::UpdatePhysics, self.tick_duration, true, self.tick, partial_ticks);
+            self.run_stage(Stage::PostUpdate, self.tick_duration, true, self.tick, partial_ticks);
+            self.run_stage(Stage::Cleanup, self.tick_duration, true, self.tick, partial_ticks);
             self.tick += 1; 
         }
 
         // Runs per-frame stages
-        self.run_stage(Stage::Asset, delta, is_tick, partial_ticks);
-        self.run_stage(Stage::Render, delta, is_tick, partial_ticks);
+        self.run_stage(Stage::Asset, delta, is_tick, self.tick, partial_ticks);
+        self.run_stage(Stage::Render, delta, is_tick, self.tick, partial_ticks);
     }
 
     /**
      * Runs all [`System`]s within a [`Stage`], then executes enqueued tasks.
      */
     #[instrument(skip(self))]
-    fn run_stage(&mut self, stage: Stage, delta: Duration, is_tick: bool, partial_ticks: f32) {
+    fn run_stage(&mut self, stage: Stage, delta: Duration, is_tick: bool, tick: u64, partial_ticks: f32) {
 
         // Runs systems for stage specified.
         if let Some(systems) = self.enabled_systems.get_mut(&stage) {
@@ -101,6 +101,7 @@ impl App {
                     event_queue: &mut self.event_queue,
                     delta,
                     is_tick,
+                    tick,
                     partial_ticks,
                 };
                 system(&mut self.game, ctx);
@@ -116,6 +117,7 @@ impl App {
                     event_queue: &mut self.event_queue,
                     delta,
                     is_tick,
+                    tick,
                     partial_ticks,
                 };
                 let finished = script.run(&mut self.game, ctx);
@@ -147,6 +149,7 @@ impl App {
                 event_queue: &mut self.event_queue,
                 delta,
                 is_tick,
+                tick,
                 partial_ticks,
             };
             while let Some(event) = event_queue.pop_front() {
@@ -297,6 +300,7 @@ pub struct RunContext<'a> {
     event_queue: &'a mut VecDeque<DynEvent>,
     delta: Duration,
     is_tick: bool,
+    tick: u64,
     partial_ticks: f32,
 }
 
@@ -318,6 +322,10 @@ impl<'a> RunContext<'a> {
 
     pub fn is_tick(&self) -> bool {
         self.is_tick
+    }
+
+    pub fn tick(&self) -> u64 {
+        self.tick
     }
 
     pub fn partial_ticks(&self) -> f32 {

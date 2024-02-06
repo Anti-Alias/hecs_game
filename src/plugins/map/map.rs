@@ -1,71 +1,59 @@
-use crate::{Asset, AssetLoader, AssetValue, Handle, Tileset};
-use derive_more::*;
-use roxmltree::{Document, Node};
+use crate::{Asset, Handle, TmxParseError};
 
-
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct TiledMap {
-    pub width: u32, 
-    pub height: u32,
-    pub tilewidth: u32,
-    pub tileheight: u32,
-    pub tilesets: Vec<Handle<Tileset>>,
-}
-
-struct TmxLoader;
-impl AssetLoader for TmxLoader {
-
-    type AssetType = TiledMap;
-
-    fn load(&self, bytes: &[u8], _path: &crate::AssetPath) -> anyhow::Result<AssetValue<Self::AssetType>> {
-        let mut map = TiledMap::default();
-        let source = std::str::from_utf8(bytes)?;
-        let doc = Document::parse(source)?;
-        let root = doc.root();
-        for node in root.children() {
-            let tag_name = node.tag_name().name();
-            match tag_name {
-                "map" => parse_map_node(&mut map, node),
-                _ => Err(TiledMapError::UnexpectedTagError { tag_name: tag_name.into() })
-            }?
-        }
-        Ok(AssetValue::Asset(map))
-    }
-
-    fn extensions(&self) -> &[&str] {
-        &["tmx"]
-    }
-}
-
-
-fn parse_map_node(map: &mut TiledMap, map_node: Node) -> Result<(), TiledMapError> {
-    for node in map_node.descendants() {
-        let tag_name = node.tag_name().name();
-        match tag_name {
-            "tileset" => {},
-            _ => {},
-
-        }
-    }
-    Ok(())
+    pub(crate) version: String,
+    pub(crate) orientation: Orientation,
+    pub(crate) render_order: RenderOrder,
+    pub(crate) width: u32, 
+    pub(crate) height: u32,
+    pub(crate) tile_width: u32,
+    pub(crate) tile_height: u32,
+    pub(crate) tilesets: Vec<Handle<Tileset>>,
+    pub(crate) infinite: bool,
 }
 
 impl Asset for TiledMap {}
 
-
-#[derive(Error, Display, From, Debug)]
-pub enum TiledMapError {
-    XmlError(roxmltree::Error),
-    #[display(fmg="Unexpected tag '{tag}'")]
-    UnexpectedTagError { tag_name: String },
+#[derive(Copy, Clone, Eq, PartialEq, Default, Debug)]
+pub enum RenderOrder {
+    #[default]
+    RightDown,
+    RightUp,
+    LeftDown,
+    LeftUp,
 }
 
-#[cfg(test)]
-mod test {
-    use super::TmxLoader;
+#[derive(Copy, Clone, Eq, PartialEq, Default, Debug)]
+pub enum Orientation {
+    #[default]
+    Orthogonal,
+    Isometric,
+    Staggered,
+}
 
-    #[test]
-    fn test() {
-        let loader = TmxLoader;
+impl Orientation {
+    pub fn from_str(value: &str) -> Result<Self, TmxParseError> {
+        match value {
+            "orthogonal" => Ok(Self::Orthogonal),
+            "isometric" => Ok(Self::Isometric),
+            "staggered" => Ok(Self::Staggered),
+            _ => Err(TmxParseError::InvalidAttributeValue { value: String::from(value) })
+        }
     }
 }
+
+impl RenderOrder {
+    pub fn from_str(value: &str) -> Result<Self, TmxParseError> {
+        match value {
+            "right-down" => Ok(Self::RightDown),
+            "right-up" => Ok(Self::RightUp),
+            "left-down" => Ok(Self::LeftDown),
+            "left-up" => Ok(Self::LeftUp),
+            _ => Err(TmxParseError::InvalidAttributeValue { value: String::from(value) })
+        }
+    }
+}
+
+pub struct Tileset {}
+impl Asset for Tileset {}

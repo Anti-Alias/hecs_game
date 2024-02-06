@@ -25,45 +25,81 @@ impl<L: AssetLoader> DynLoader for L {
 /// Produces an asset using an asset manager.
 pub trait AssetProducer: Send + Sync + 'static {
     type AssetType: Asset;
-    fn produce(&self, manager: &AssetManager) -> Self::AssetType;
+    fn produce(&mut self, manager: &AssetManager) -> Self::AssetType;
+}
+
+/// Producer that utilizes an underlying callback function.
+/// Consumes it when finished.
+pub enum FnAssetProducer<F, A>
+where
+    F: FnOnce(&AssetManager) -> A + Send + Sync + 'static,
+    A: Asset,
+{
+    Producer(F),
+    Consumed,
+}
+
+impl<F, A> AssetProducer for FnAssetProducer<F, A>
+where
+    F: FnOnce(&AssetManager) -> A + Send + Sync + 'static,
+    A: Asset,
+{
+    type AssetType = A;
+    fn produce(&mut self, manager: &AssetManager) -> Self::AssetType {
+        let producer = std::mem::replace(self, FnAssetProducer::Consumed);
+        let function = match producer {
+            FnAssetProducer::Producer(function) => function,
+            FnAssetProducer::Consumed => unreachable!(),
+        };
+        function(manager)
+    }
+}
+
+impl<F, A> AssetProducer for F
+where
+    F: FnMut(&AssetManager) -> A + Send + Sync + 'static,
+    A: Asset
+{
+    type AssetType = A;
+    fn produce(&mut self, manager: &AssetManager) -> Self::AssetType {
+        self(manager)
+    }
+    
 }
 
 impl<P: AssetProducer> DynAssetProducer for P {
-    fn dyn_produce(&self, manager: &AssetManager) -> Box<dyn Any + Send + Sync + 'static> {
+    fn dyn_produce(&mut self, manager: &AssetManager) -> Box<dyn Any + Send + Sync + 'static> {
         let asset = self.produce(manager);
         Box::new(asset)
     }
 }
 
-/// Either an asset, or a callback function that produces the asset.
-pub enum AssetValue<A> {
-    Consumed,
-    Asset(A),
-    AssetProducer(Box<dyn DynAssetProducer>)
-}
 
-impl<A> AssetValue<A> {
-    pub fn from_asset(asset: A) -> Self {
-        Self::Asset(asset)
-    }
-    pub fn from_producer<P: AssetProducer<AssetType=A>>(producer: P) -> Self {
-        Self::AssetProducer(Box::new(producer))
+/// Value returned by an [`AssetLoader`].
+/// Either a plain [`Asset`], or a producer of an [`Asset`].
+/// Producer runs on main thread and has access to the [`AssetManager`] for loading or inserting dependent assets.
+pub struct AssetValue<A>(AssetValueInner<A>);
+
+impl<A: Asset> AssetValue<A> {
+    pub fn from_fn<F>(function: F) -> Self
+    where
+        F: FnOnce(&AssetManager) -> A + Send + Sync + 'static,
+    {
+        let dyn_producer: Box<dyn DynAssetProducer> = Box::new(FnAssetProducer::Producer(function));
+        Self(AssetValueInner::Producer(dyn_producer))
     }
 }
 
 impl<A: Asset> From<A> for AssetValue<A> {
     fn from(asset: A) -> Self {
-        Self::Asset(asset)
+        Self(AssetValueInner::Asset(asset))
     }
 }
 
-impl<A: Asset> AssetValue<A> {
-    pub fn set(&mut self, asset: A) {
-        *self = Self::Asset(asset);
-    }
-    pub fn set_with(&mut self, producer: impl AssetProducer) {
-        *self = Self::AssetProducer(Box::new(producer));
-    }
+enum AssetValueInner<A> {
+    Consumed,
+    Asset(A),
+    Producer(Box<dyn DynAssetProducer>)
 }
 
 /// Dynamic trait variant of [`AssetLoader`].
@@ -74,7 +110,7 @@ pub(crate) trait DynLoader: Send + Sync + 'static {
 
 /// Dynamic trait variant of [`AssetProducer`].
 pub trait DynAssetProducer: Send + Sync + 'static {
-    fn dyn_produce(&self, manager: &AssetManager) -> Box<dyn Any + Send + Sync + 'static>;
+    fn dyn_produce(&mut self, manager: &AssetManager) -> Box<dyn Any + Send + Sync + 'static>;
 }
 
 pub trait DynAssetValue: Send + Sync + 'static {
@@ -83,11 +119,11 @@ pub trait DynAssetValue: Send + Sync + 'static {
 
 impl<A: Asset> DynAssetValue for AssetValue<A> {
     fn produce(&mut self, manager: &AssetManager) -> Box<dyn Any + Send + Sync + 'static> {
-        let asset_value = std::mem::replace(self, AssetValue::Consumed);
-        match asset_value {
-            AssetValue::Asset(asset) => Box::new(asset),
-            AssetValue::AssetProducer(producer) => Box::new(producer.dyn_produce(manager)),
-            _ => unreachable!()
+        let inner = std::mem::replace(&mut self.0, AssetValueInner::Consumed);
+        match inner {
+            AssetValueInner::Asset(asset) => Box::new(asset),
+            AssetValueInner::Producer(mut producer) => producer.dyn_produce(manager),
+            _ => panic!("produce cannot be invoked multiple times")
         }
     }
 }

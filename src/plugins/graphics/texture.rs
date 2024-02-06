@@ -63,8 +63,8 @@ impl AssetLoader for TextureLoader {
             mipmap_filter: FilterMode::Nearest,
             ..Default::default()
         });
-        let value = AssetValue::Asset(Texture { view, sampler });
-        Ok(value)
+        let texture = Texture { view, sampler };
+        Ok(AssetValue::from(texture))
     }
 
     fn extensions(&self) -> &[&str] {

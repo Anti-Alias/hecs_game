@@ -62,7 +62,12 @@ impl AssetManager {
     }
 
     /// Adds a loader for transforming file bytes into assets.
-    pub fn add_loader(&mut self, loader: impl AssetLoader) -> Result<(), LoadError> {
+    pub fn add_loader(&mut self, loader: impl AssetLoader) {
+        self.try_add_loader(loader).unwrap();
+    }
+
+    /// Adds a loader for transforming file bytes into assets.
+    pub fn try_add_loader(&mut self, loader: impl AssetLoader) -> Result<(), LoadError> {
         for extension in loader.extensions() {
             if self.extension_to_loader.contains_key(*extension) {
                 return Err(LoadError::ExtensionOverlaps);
@@ -77,12 +82,43 @@ impl AssetManager {
     }
 
     /// Inserts an asset manually, and returns a handle to it.
-    pub fn insert<A: Asset>(&mut self, asset: A) -> Handle<A> {
-        self.storage_mut::<A>().unwrap().insert(asset)
+    pub fn insert<A: Asset>(&self, asset: A) -> Handle<A> {
+        self.storage::<A>().insert(asset)
+    }
+
+    /// Gets the contents of a handle.
+    /// Panics if failed to load.
+    #[cfg(test)]
+    pub fn block_until_loaded<A: Asset>(&mut self, handle: &Handle<A>) {
+        use std::time::Duration;
+        let mut attempts = 10;
+        while attempts > 0 {
+            self.try_handle_messages();
+            let storage = self.storage::<A>();
+            let state = storage.get(handle);
+            match state {
+                crate::AssetState::Loading => {},
+                crate::AssetState::Loaded(_) => return,
+                crate::AssetState::Failed => panic!("Asset failed to load"),
+            }
+            attempts -= 1;
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        panic!("Ran out of attempts");
     }
 
     /// Gets asset storage
-    pub fn storage<A: Asset>(&self) -> Option<AssetStorage<A>> {
+    pub fn storage<A: Asset>(&self) -> AssetStorage<A> {
+        self.try_storage().unwrap()
+    }
+
+    /// Gets asset storage
+    pub fn storage_mut<A: Asset>(&mut self) -> AssetStorageMut<'_, A> {
+        self.try_storage_mut().unwrap()
+    }
+
+    /// Gets asset storage
+    pub fn try_storage<A: Asset>(&self) -> Option<AssetStorage<A>> {
         let asset_type = TypeId::of::<A>();
         let dyn_storage = self.asset_storages.get(&asset_type)?;
         let inner_cell = dyn_storage
@@ -96,7 +132,7 @@ impl AssetManager {
     }
 
     /// Gets asset storage
-    pub fn storage_mut<A: Asset>(&mut self) -> Option<AssetStorageMut<'_, A>> {
+    pub fn try_storage_mut<A: Asset>(&mut self) -> Option<AssetStorageMut<'_, A>> {
         let asset_type = TypeId::of::<A>();
         let dyn_storage = self.asset_storages.get(&asset_type)?;
         let inner_cell = dyn_storage
@@ -112,11 +148,7 @@ impl AssetManager {
 
     /// Loads an asset in the background, and returns a handle.
     /// Contents of handle can be fetched from underlying storage once loading finishes.
-    pub fn load<A, P>(&self, path: P) -> Handle<A>
-    where
-        A: Asset,
-        P: AsRef<str>,
-    {
+    pub fn load<A: Asset>(&self, path: impl AsRef<str>) -> Handle<A> {
         self.try_load(path).unwrap()
     }
 

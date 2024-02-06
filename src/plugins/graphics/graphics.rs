@@ -20,7 +20,7 @@ impl Plugin for GraphicsPlugin {
         };
         game.add(g3d::G3D::new(device.clone(), queue.clone()));
         let mut assets = game.get::<&mut AssetManager>();
-        assets.add_loader(TextureLoader { device, queue, }).unwrap();
+        assets.add_loader(TextureLoader { device, queue, });
     }
 }
 
@@ -74,9 +74,9 @@ fn render_3d(game: &mut Game, ctx: RunContext) {
         }
     };
 
-    let textures = assets.storage::<Texture>().unwrap();
-    let meshes = assets.storage::<Mesh>().unwrap();
-    let mut materials = assets.storage::<Material>().unwrap();
+    let textures = assets.storage::<Texture>();
+    let meshes = assets.storage::<Mesh>();
+    let mut materials = assets.storage::<Material>();
 
     prepare_materials(&mut materials, &textures, &graphics_state.device);
     enqueue_render(&graphics_state, &mut g3d_scene, &mut g3d, &surface_tex, ctx.partial_ticks(), &materials, &meshes);

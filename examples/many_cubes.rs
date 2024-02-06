@@ -1,7 +1,7 @@
+use hecs_game::*;
 use std::f32::consts::TAU;
 use glam::{Vec3, Quat};
 use hecs_game::math::Transform;
-use hecs_game::{g3d, App, AssetManager, Camera, CameraController, Color, EnginePlugin, FlycamMode, FlycamPlugin, Game, GraphicsState, OrthographicProjector, PerspectiveProjector, RunContext, ScalingMode, Scene, Stage, StartEvent};
 use hecs::World;
 use rand::{SeedableRng, Rng};
 use rand::rngs::SmallRng;
@@ -13,17 +13,17 @@ fn main() {
         .plugin(EnginePlugin::default())
         .plugin(FlycamPlugin)
         .system(Stage::Update, rotate_cubes)
-        .event_handler(handle_start);
+        .event_handler(start);
     builder.run();
 }
 
-fn handle_start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
+fn start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
 
     // Extracts domains
-    let mut world       = game.get::<&mut World>();
-    let mut scene       = game.get::<&mut Scene<g3d::Renderable>>();
-    let state           = game.get::<&GraphicsState>();
-    let mut assets      = game.get::<&mut AssetManager>();
+    let mut world   = game.get::<&mut World>();
+    let mut scene   = game.get::<&mut Scene<g3d::Renderable>>();
+    let state       = game.get::<&GraphicsState>();
+    let assets      = game.get::<&mut AssetManager>();
 
     // Spawns flycam
     let cam_tracker = scene.insert(g3d::Renderable::camera());

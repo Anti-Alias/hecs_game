@@ -1,5 +1,6 @@
 use std::any::{Any, TypeId};
 use std::cell::{RefCell, RefMut};
+use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::sync::mpsc::Sender;
 use slotmap::{new_key_type, SlotMap};
@@ -264,6 +265,12 @@ impl<A: Asset> Handle<A> {
 
 impl<A> Handle<A> {
     pub fn id(&self) -> AssetId { self.id }
+}
+
+impl<A: Any> std::fmt::Debug for Handle<A> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Handle")
+    }
 }
 
 impl<A> Clone for Handle<A> {

@@ -1,17 +1,17 @@
 use std::time::Duration;
-use crate::{ScriptContext, Instruction, Game, VarValue, VarKey};
+use crate::{ScriptContext, Task, Game, VarValue, VarKey};
 
-/// A simple print instruction.
+/// A simple print task.
 pub struct Print(pub String);
-impl Instruction for Print {
+impl Task for Print {
     fn start(&mut self, _game: &mut Game, _ctx: &mut ScriptContext) {
         println!("{}", self.0);
     }
 }
 
-/// A simple wait instruction.
+/// A simple wait task.
 pub struct Wait(pub Duration);
-impl Instruction for Wait {
+impl Task for Wait {
     fn run(&mut self, _game: &mut Game, ctx: &mut ScriptContext) -> bool {
         let delta = ctx.run_context.delta();
         if delta > self.0 {
@@ -26,10 +26,10 @@ impl Instruction for Wait {
 }
 
 /**
- * Inline instruction that runs a block of code once during its start() invocation.
+ * Inline task that runs a block of code once during its start() invocation.
 */
 pub struct Inline<F>(pub F);
-impl<F> Instruction for Inline<F>
+impl<F> Task for Inline<F>
 where
     F: FnMut(&mut Game, &mut ScriptContext) + Send + Sync + 'static
 {
@@ -101,8 +101,8 @@ impl<'a, 'b> Instructor<'a, 'b> {
         self
     }
     
-    pub fn add(&mut self, instruction: impl Instruction) -> &mut Self {
-        self.0.add(instruction);
+    pub fn add(&mut self, task: impl Task) -> &mut Self {
+        self.0.add(task);
         self
     }
 }
