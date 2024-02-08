@@ -4,16 +4,24 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::sync::mpsc::Sender;
 use slotmap::{new_key_type, SlotMap};
-use crate::{Asset, AssetId, AssetMessage, AssetMeta, HashMap, Readiness};
+use crate::{Asset, AssetId, AssetManager, AssetMessage, Readiness};
 
-/// Trait that [`AssetStorage`] must implement to be used dynamically by the [`AssetServer`].
+/// Allows for reasoning about an [`AssetStorage`] without knowing its underlying [`Asset`] type.
 pub(crate) trait DynStorage {
+    /// Allocates an asset in an initially loading state.
+    /// To be finished by finish(), or fail()
     fn insert_loading(&self) -> AssetIndex;
-    fn finish_loading(&self, index: AssetIndex, asset: Box<dyn Any>);
-    fn fail_loading(&self, index: AssetIndex);
+    /// Finishes asset with a value.
+    /// If not found, does nothing.
+    fn finish(&self, index: AssetIndex, asset: Box<dyn Any>);
+    /// Finishes asset with failure.
+    /// If not found, does nothing.
+    fn fail(&self, index: AssetIndex);
+    /// Removes an asset.
     fn remove(&self, index: AssetIndex);
+    /// Returns self as any reference.
+    /// Used for down casting to specific [`AssetStorage`] type.
     fn as_any(&self) -> &dyn Any;
-    fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 
 /// Simple contiguous storage of assets.
@@ -65,55 +73,6 @@ impl<'a, A: Asset> AssetStorage<'a, A> {
 }
 
 /// Simple contiguous storage of assets.
-/// Informs asset manager of insertions without passing messages.
-/// Has exclusive access to asset manager.
-pub struct AssetStorageMut<'a, A> {
-    pub(crate) inner: RefMut<'a, InnerAssetStorage<A>>,     // Internal storage of assets
-    pub(crate) metas: &'a mut HashMap<AssetId, AssetMeta>,  // Metadata of assets
-    pub(crate) sender: &'a mut Sender<AssetMessage>,
-}
-
-impl<'a, A: Asset> AssetStorageMut<'a, A> {
-
-    pub fn insert(&mut self, asset: A) -> Handle<A> {
-        let index = self.inner.insert(AssetState::Loaded(asset));
-        let id = AssetId {
-            asset_type: TypeId::of::<A>(),
-            index,
-        };
-        self.metas.insert(id, AssetMeta {
-            path_hash: None,
-            ref_count: 1,
-        });
-        Handle {
-            id,
-            sender: self.sender.clone(),
-            phantom: PhantomData,
-        }
-    }
-
-    pub fn get(&self, handle: &Handle<A>) -> AssetState<&A> {
-        self.inner.get(handle.id.index).unwrap().as_ref()
-    }
-
-    pub fn get_mut(&mut self, handle: &Handle<A>) -> AssetState<&mut A> {
-        self.inner.get_mut(handle.id.index).unwrap().as_mut()
-    }
-
-    pub fn len(&self) -> usize {
-        self.inner.len()
-    }
-
-    pub fn values(&self) -> impl Iterator<Item = &AssetState<A>> {
-        self.inner.values()
-    }
-
-    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut AssetState<A>> {
-        self.inner.values_mut()
-    }
-}
-
-/// Simple contiguous storage of assets.
 pub(crate) type InnerAssetStorage<A> = SlotMap<AssetIndex, AssetState<A>>;
 impl<A: Asset> DynStorage for RefCell<InnerAssetStorage<A>> {
 
@@ -122,16 +81,16 @@ impl<A: Asset> DynStorage for RefCell<InnerAssetStorage<A>> {
         slf.insert(AssetState::Loading)
     }
 
-    fn finish_loading(&self, index: AssetIndex, asset: Box<dyn Any>) {
+    fn finish(&self, index: AssetIndex, asset: Box<dyn Any>) {
         let mut slf = self.borrow_mut();
-        let state = slf.get_mut(index).unwrap();
+        let Some(state) = slf.get_mut(index) else { return };
         let asset = asset.downcast::<A>().unwrap();
         *state = AssetState::Loaded(*asset);
     }
 
-    fn fail_loading(&self, index: AssetIndex) {
+    fn fail(&self, index: AssetIndex) {
         let mut slf = self.borrow_mut();
-        let state = slf.get_mut(index).unwrap();
+        let Some(state) = slf.get_mut(index) else { return };
         *state = AssetState::Failed;
     }
     
@@ -139,10 +98,8 @@ impl<A: Asset> DynStorage for RefCell<InnerAssetStorage<A>> {
         let mut slf = self.borrow_mut();
         slf.remove(index);
     }
+
     fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
 }

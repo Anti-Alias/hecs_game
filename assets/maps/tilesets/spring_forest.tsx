@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <tileset version="1.10" tiledversion="1.10.1" name="spring_forest" tilewidth="16" tileheight="16" tilecount="672" columns="32">
- <image source="../../../../rust-gaem/assets/map/spring_forest.png" width="512" height="336"/>
+ <image source="spring_forest.png" width="512" height="336"/>
  <tile id="33">
   <properties>
    <property name="is_grass" type="bool" value="true"/>

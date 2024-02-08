@@ -37,4 +37,12 @@ impl Readiness {
             (Readiness::Failed, Readiness::Failed) => Readiness::Failed,
         }
     }
+
+    pub fn of_all<'a, A: Asset>(assets: impl IntoIterator<Item = &'a A>, manager: &AssetManager) -> Readiness {
+        let mut readiness = Readiness::Ready;
+        for asset in assets {
+            readiness = readiness.merge(asset.readiness(manager));
+        }
+        readiness
+    }
 }

@@ -1,12 +1,12 @@
-use crate::{DynAssetValue, HashMap};
+use crate::{AssetState, DynAssetValue, HashMap, Readiness};
 use derive_more::*;
 use std::any::TypeId;
-use std::cell::RefCell;
+use std::cell::{Ref, RefMut, RefCell};
 use std::collections::hash_map::Entry;
 use std::marker::PhantomData;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
-use crate::{Asset, AssetId, AssetLoader, AssetPath, AssetStorage, AssetStorageMut, DynLoader, DynStorage, Handle, InnerAssetStorage, PathHash, Protocol};
+use crate::{Asset, AssetId, AssetLoader, AssetPath, AssetStorage, DynLoader, DynStorage, Handle, InnerAssetStorage, PathHash, Protocol};
 
 /// Responsible for loading assets in a background thread and storing them in relevant storages.
 pub struct AssetManager {
@@ -86,63 +86,81 @@ impl AssetManager {
         self.storage::<A>().insert(asset)
     }
 
-    /// Gets the contents of a handle.
-    /// Panics if failed to load.
-    #[cfg(test)]
-    pub fn block_until_loaded<A: Asset>(&mut self, handle: &Handle<A>) {
-        use std::time::Duration;
-        let mut attempts = 10;
-        while attempts > 0 {
-            self.try_handle_messages();
-            let storage = self.storage::<A>();
-            let state = storage.get(handle);
-            match state {
-                crate::AssetState::Loading => {},
-                crate::AssetState::Loaded(_) => return,
-                crate::AssetState::Failed => panic!("Asset failed to load"),
-            }
-            attempts -= 1;
-            std::thread::sleep(Duration::from_millis(100));
+    /// Gets the readiness of a handle.
+    pub fn readiness_of<A: Asset>(&self, handle: &Handle<A>) -> Readiness {
+        let storage = self.storage::<A>();
+        let state = storage.get(handle);
+        match state {
+            AssetState::Loading => return Readiness::NotReady,
+            AssetState::Loaded(asset) => asset.readiness(self),
+            AssetState::Failed => return Readiness::Failed,
         }
-        panic!("Ran out of attempts");
     }
 
-    /// Gets asset storage
+    /// Gets the merged readiness of a set of handles.
+    pub fn readiness_all<'a, A: Asset>(&self, handles: impl IntoIterator<Item = &'a Handle<A>>) -> Readiness {
+        let storage = self.storage::<A>();
+        let mut readiness = Readiness::Ready;
+        for handle in handles {
+            let state = storage.get(handle);
+            let asset = match state {
+                AssetState::Loaded(asset) => asset,
+                AssetState::Loading => return Readiness::NotReady,
+                AssetState::Failed => return Readiness::Failed,
+            };
+            readiness = readiness.merge(asset.readiness(self));
+        }
+        readiness
+    }
+
+    /// Gets asset using specified handle.
+    /// Underlying storage is "read-locked".
+    pub fn get<'a, A: Asset>(&'a self, handle: &Handle<A>) -> Ref<'a, AssetState<A>> {
+        let asset_type = TypeId::of::<A>();
+        let dyn_storage = self.asset_storages.get(&asset_type).unwrap();
+        let storage_cell = dyn_storage
+            .as_any()
+            .downcast_ref::<RefCell<InnerAssetStorage<A>>>()
+            .unwrap()
+            .borrow();
+        Ref::map(storage_cell, |storage| {
+            storage.get(handle.id.index).unwrap()
+        })
+    }
+
+    /// Gets asset using specified handle.
+    /// Underlying storage is "write-locked".
+    pub fn get_mut<'a, A: Asset>(&'a self, handle: &Handle<A>) -> RefMut<'a, AssetState<A>> {
+        let asset_type = TypeId::of::<A>();
+        let dyn_storage = self.asset_storages.get(&asset_type).unwrap();
+        let storage_cell = dyn_storage
+            .as_any()
+            .downcast_ref::<RefCell<InnerAssetStorage<A>>>()
+            .unwrap()
+            .borrow_mut();
+        RefMut::map(storage_cell, |storage| {
+            storage.get_mut(handle.id.index).unwrap()
+        })
+    }
+
+    /// Gets asset storage for specified asset type.
+    /// Underlying storage is "read-locked".
     pub fn storage<A: Asset>(&self) -> AssetStorage<A> {
         self.try_storage().unwrap()
     }
 
-    /// Gets asset storage
-    pub fn storage_mut<A: Asset>(&mut self) -> AssetStorageMut<'_, A> {
-        self.try_storage_mut().unwrap()
-    }
-
-    /// Gets asset storage
+    /// Gets asset storage for specified asset type.
+    /// Underlying storage is "read-locked".
     pub fn try_storage<A: Asset>(&self) -> Option<AssetStorage<A>> {
         let asset_type = TypeId::of::<A>();
         let dyn_storage = self.asset_storages.get(&asset_type)?;
-        let inner_cell = dyn_storage
+        let storage_cell = dyn_storage
             .as_any()
             .downcast_ref::<RefCell<InnerAssetStorage<A>>>()
             .unwrap();
         Some(AssetStorage {
-            inner: inner_cell.borrow_mut(),
+            inner: storage_cell.borrow_mut(),
             sender: &self.sender,
-        })
-    }
-
-    /// Gets asset storage
-    pub fn try_storage_mut<A: Asset>(&mut self) -> Option<AssetStorageMut<'_, A>> {
-        let asset_type = TypeId::of::<A>();
-        let dyn_storage = self.asset_storages.get(&asset_type)?;
-        let inner_cell = dyn_storage
-            .as_any()
-            .downcast_ref::<RefCell<InnerAssetStorage<A>>>()
-            .unwrap();
-        Some(AssetStorageMut {
-            inner: inner_cell.borrow_mut(),
-            metas: &mut self.asset_metas,
-            sender: &mut self.sender,
         })
     }
 
@@ -188,9 +206,7 @@ impl AssetManager {
 
         // Parses path, and uses it to fetch protocol and loader.
         let mut path = AssetPath::parse(path, self.default_protocol.as_deref())?;
-        if let Some(path_prefix) = &self.path_prefix {
-            path.body = format!("{}/{}", path_prefix, path.body);
-        }
+        path.prefix = self.path_prefix.clone();
         let protocol = match self.protocols.get(&path.protocol) {
             Some(protocol) => protocol.clone(),
             None => return Err(LoadError::NoSuchProtocol),
@@ -278,11 +294,11 @@ impl AssetManager {
                 AssetMessage::AssetFinishedLoading { asset_id, mut dyn_asset_value } => {
                     let storage = self.asset_storages.get(&asset_id.asset_type).unwrap();
                     let dyn_asset = dyn_asset_value.produce(self);
-                    storage.finish_loading(asset_id.index, dyn_asset);
+                    storage.finish(asset_id.index, dyn_asset);
                 },
                 AssetMessage::AssetFailedLoading(asset_id) => {
                     let storage = self.asset_storages.get(&asset_id.asset_type).unwrap();
-                    storage.fail_loading(asset_id.index);
+                    storage.fail(asset_id.index);
                 },
             }
         }
@@ -334,188 +350,3 @@ pub(crate) struct AssetMeta {
     pub path_hash: Option<PathHash>,
     pub ref_count: u32,
 }
-
-// #[cfg(test)]
-// mod test {
-//     use std::time::Duration;
-//     use game_macros::load;
-//     use serde_yaml::Value;
-//     use crate::plugins::asset::*;
-
-//     struct YmlLoader;
-//     impl AssetLoader for YmlLoader {
-//         type AssetType = Value;
-//         fn load(&self, bytes: &[u8], _path: &AssetPath) -> anyhow::Result<Self::AssetType> {
-//             let string = std::str::from_utf8(bytes)?;
-//             let result: Value = serde_yaml::from_str(string)?;
-//             Ok(result)
-//         }
-//         fn extensions(&self) -> &[&str] {
-//             &["yml"]
-//         }
-//     }
-
-
-//     #[test]
-//     fn test_manual() {
-
-//         // Creates asset manager with String asset storage.
-//         let mut manager = AssetManager::new();
-//         manager.add_storage::<&'static str>();
-
-//         // Inserts asset manually and assert's they're loaded
-//         let mut storage = manager.storage_mut::<&'static str>().unwrap();
-//         assert_eq!(0, storage.len());
-//         let handle_original = storage.insert("string");
-//         assert_eq!(1, storage.len());
-//         assert_eq!(AssetState::Loaded(&"string"), storage.get(&handle_original));
-//         let handle_clone = handle_original.clone();
-//         manager.try_handle_messages();
-
-//         // Asserts handle's clone is loaded.
-//         let storage = manager.storage::<&'static str>().unwrap();
-//         assert_eq!(AssetState::Loaded(&"string"), storage.get(&handle_clone));
-//         manager.try_handle_messages();
-
-//         // Drops clone. Asserts original is loaded.
-//         drop(handle_clone);
-//         let storage = manager.storage::<&'static str>().unwrap();
-//         assert_eq!(AssetState::Loaded(&"string"), storage.get(&handle_original));
-//         manager.try_handle_messages();
-
-//         // Drops original. Asserts there are none loaded.
-//         drop(handle_original);
-//         let storage = manager.storage::<&'static str>().unwrap();
-//         assert_eq!(1, storage.len());
-//         manager.try_handle_messages();
-
-//         // After final drop, storage should be empty
-//         let storage = manager.storage::<&'static str>().unwrap();
-//         assert_eq!(0, storage.len());
-//     }
-
-//     #[test]
-//     fn test_load() {
-
-//         // Creates asset manager that loads a yml "file".
-//         let mut manager = AssetManager::new();
-//         manager.add_protocol(RawProtocol::from("{ name: steve, age: 22 }"), false);
-//         manager.add_storage::<Value>();
-//         manager.add_loader(YmlLoader).unwrap();
-//         let handle: Handle<Value> = load!(manager, "raw://not_real_file.yml");
-
-//         // Loads asset and asserts that it's in a "loading" state.
-//         let storage = manager.storage::<Value>().unwrap();
-//         let state = storage.get(&handle);
-//         assert_eq!(true, state.is_loading());
-//         assert_eq!(false, state.is_loaded());
-//         assert_eq!(false, state.is_failed());
-
-//         // Waits for asset to leave "loading" state.
-//         let mut attempts = 10;
-//         loop {
-//             manager.try_handle_messages();
-//             let storage = manager.storage::<Value>().unwrap();
-//             let state = storage.get(&handle);
-//             if !state.is_loading() { break }
-//             attempts -= 1;
-//             if attempts == 0 {
-//                 panic!("Failed to finish loading");
-//             }
-//             std::thread::sleep(Duration::from_millis(100));
-//         }
-
-//         // Verifies that asset is "loaded".
-//         let storage = manager.storage::<Value>().unwrap();
-//         let state = storage.get(&handle);
-//         assert_eq!(false, state.is_loading());
-//         assert_eq!(true, state.is_loaded());
-//         assert_eq!(false, state.is_failed());
-
-//         // Checks that panics don't occur from cloning and dropping handles.
-//         let handle2 = handle.clone();
-//         manager.try_handle_messages();
-//         drop(handle);
-//         manager.try_handle_messages();
-//         drop(handle2);
-//         manager.try_handle_messages();
-//     }
-
-//     #[test]
-//     fn test_load_failure() {
-
-//         // Creates asset manager that loads a yml "file".
-//         let mut manager = AssetManager::new();
-//         manager.add_protocol(RawProtocol::from("\"invalid yaml"), false);
-//         manager.add_storage::<Value>();
-//         manager.add_loader(YmlLoader).unwrap();
-//         let handle: Handle<Value> = load!(manager, "raw://not_real_file.yml");
-
-//         // Loads asset and asserts that it's in a "loading" state.
-//         let storage = manager.storage::<Value>().unwrap();
-//         let state = storage.get(&handle);
-//         assert_eq!(true, state.is_loading());
-//         assert_eq!(false, state.is_loaded());
-//         assert_eq!(false, state.is_failed());
-
-//         // Waits for asset to leave "loading" state.
-//         let mut attempts = 10;
-//         loop {
-//             manager.try_handle_messages();
-//             let storage = manager.storage::<Value>().unwrap();
-//             let state = storage.get(&handle);
-//             if !state.is_loading() { break }
-//             attempts -= 1;
-//             if attempts == 0 {
-//                 panic!("Failed to finish loading");
-//             }
-//             std::thread::sleep(Duration::from_millis(100));
-//         }
-
-//         // Verifies that asset is "failed".
-//         let storage = manager.storage::<Value>().unwrap();
-//         let state = storage.get(&handle);
-//         assert_eq!(false, state.is_loading());
-//         assert_eq!(false, state.is_loaded());
-//         assert_eq!(true, state.is_failed());
-//     }
-
-//     #[test]
-//     fn test_load_default_protocol() {
-
-//         // Creates asset manager that loads a yml "file".
-//         let mut manager = AssetManager::new();
-//         manager.add_protocol(RawProtocol::from("{ yaml: true, json: false }"), true);
-//         manager.add_storage::<Value>();
-//         manager.add_loader(YmlLoader).unwrap();
-//         let handle: Handle<Value> = load!(manager, "not_real_file.yml");
-
-//         // Loads asset and asserts that it's in a "loading" state.
-//         let storage = manager.storage::<Value>().unwrap();
-//         let state = storage.get(&handle);
-//         assert_eq!(true, state.is_loading());
-//         assert_eq!(false, state.is_loaded());
-//         assert_eq!(false, state.is_failed());
-
-//         // Waits for asset to leave "loading" state.
-//         let mut attempts = 10;
-//         loop {
-//             manager.try_handle_messages();
-//             let storage = manager.storage::<Value>().unwrap();
-//             let state = storage.get(&handle);
-//             if !state.is_loading() { break }
-//             attempts -= 1;
-//             if attempts == 0 {
-//                 panic!("Failed to finish loading");
-//             }
-//             std::thread::sleep(Duration::from_millis(100));
-//         }
-
-//         // Verifies that asset is "loaded".
-//         let storage = manager.storage::<Value>().unwrap();
-//         let state = storage.get(&handle);
-//         assert_eq!(false, state.is_loading());
-//         assert_eq!(true, state.is_loaded());
-//         assert_eq!(false, state.is_failed());
-//     }
-// }

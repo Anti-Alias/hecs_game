@@ -5,6 +5,8 @@ use winit::window::Fullscreen;
 use crate::g3d::{Material, Mesh};
 use crate::*;
 
+use self::map::MapPlugin;
+
 /**
  * Main game engine plugin.
  */
@@ -36,6 +38,7 @@ impl Plugin for EnginePlugin {
             .plugin(EcsPlugin)
             .plugin(AssetPlugin)
             .plugin(GraphicsPlugin)
+            .plugin(MapPlugin)
             .tick_duration(Duration::from_secs_f64(1.0/60.0));
 
         let game = builder.game();
@@ -43,8 +46,6 @@ impl Plugin for EnginePlugin {
         assets.add_storage::<Mesh>();
         assets.add_storage::<Material>();
         assets.add_storage::<Texture>();
-        assets.add_storage::<TiledMap>();
-        assets.add_loader(TmxLoader);
     }
 }
 

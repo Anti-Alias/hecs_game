@@ -5,7 +5,7 @@ mod window;
 mod graphics;
 mod input;
 mod camera;
-mod map;
+pub mod map;
 
 pub use ecs::*;
 pub use asset::*;
@@ -14,4 +14,3 @@ pub use window::*;
 pub use graphics::*;
 pub use input::*;
 pub use camera::*;
-pub use map::*;

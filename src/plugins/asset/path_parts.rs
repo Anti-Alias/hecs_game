@@ -7,6 +7,7 @@ use crate::LoadError;
 #[derive(Clone, Eq, PartialEq, Default, Debug, Hash)]
 pub struct AssetPath {
     pub protocol: String,
+    pub prefix: Option<String>,
     pub body: String,
     pub extension: String,
 }
@@ -42,6 +43,7 @@ impl AssetPath {
 
         Ok(Self {
             protocol: protocol.into(),
+            prefix: None,
             body: body.into(),
             extension: extension.into()
         })
@@ -49,14 +51,29 @@ impl AssetPath {
 
     /// Body and extension. No protocol.
     pub fn without_protocol(&self) -> String {
-        format!("{}.{}", self.body, self.extension)
+        match self.prefix.as_deref() {
+            Some(prefix) => format!("{}/{}.{}", prefix, self.body, self.extension),
+            None => format!("{}.{}", self.body, self.extension),
+        }
+    }
+
+    /// Parent directory of this file.
+    /// None if it's at the root.
+    pub fn parent(&self) -> Option<String> {
+        let parts: Vec<&str> = self.body.split("/").collect();
+        if parts.len() == 1 { return None }
+        let parent_parts = &parts[..parts.len() - 1];
+        let parent = parent_parts.join("/");
+        Some(parent)
     }
 }
 
 impl fmt::Display for AssetPath {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}://{}.{}", self.protocol, self.body, self.extension)?;
-        Ok(())
+        match self.prefix.as_deref() {
+            Some(prefix) => write!(f, "{}://{}/{}.{}", self.protocol, prefix, self.body, self.extension),
+            None => write!(f, "{}://{}.{}", self.protocol, self.body, self.extension),
+        }
     }
 }
 

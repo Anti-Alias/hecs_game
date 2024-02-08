@@ -4,7 +4,7 @@ use derive_more::*;
 use crate::{Game, RunContext, HashMap};
 
 /**
- * A series of [`task`]s to run one after another.
+ * A series of [`Task`]s to run one after another.
  */
 pub struct Script {
     current: Option<Box<dyn Task>>,
@@ -198,6 +198,10 @@ impl<'a> ScriptContext<'a> {
             .downcast_mut::<V>()
             .ok_or(ScriptError::IncorrectVariableType)?;
         Ok(value)
+    }
+
+    pub fn tick(&self) -> u64 {
+        self.run_context.tick()
     }
 }
 

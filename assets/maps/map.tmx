@@ -3,6 +3,9 @@
  <tileset firstgid="1" source="tilesets/spring_forest.tsx"/>
  <tileset firstgid="673" source="tilesets/shape.tsx"/>
  <tileset firstgid="1697" source="tilesets/spring_trees.tsx"/>
+ <tileset firstgid="1700" name="spring_forest_internal" tilewidth="16" tileheight="16" tilecount="672" columns="32">
+  <image source="tilesets/spring_forest.png" width="512" height="336"/>
+ </tileset>
  <group id="2" name="ground">
   <layer id="1" name="0" width="30" height="20">
    <data encoding="csv">
@@ -78,7 +81,7 @@
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 </data>
   </layer>
-  <layer id="5" name=":shape:" width="30" height="20" visible="0">
+  <layer id="5" name=":shape:" width="30" height="20">
    <data encoding="csv">
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
