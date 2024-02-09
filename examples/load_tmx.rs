@@ -1,4 +1,4 @@
-use hecs_game::map::{TiledMap, Tileset};
+use hecs_game::map::{GroupLayer, LayerKind, TiledMap, Tileset};
 use hecs_game::*;
 
 fn main() {
@@ -15,20 +15,19 @@ fn start(_game: &mut Game, _event: &StartEvent, ctx: &mut RunContext) {
 }
 
 
-// Convenience function.
-fn load_map(path: impl Into<String>) -> LoadMap {
-    LoadMap {
+/// Instruction that loads a map and spawns it in the world when ready.
+struct SpawnMap {
+    path: String,
+    map_handle: Option<Handle<TiledMap>>,
+}
+fn load_map(path: impl Into<String>) -> SpawnMap {
+    SpawnMap {
         path: path.into(),
         map_handle: None,
     }
 }
 
-struct LoadMap {
-    path: String,
-    map_handle: Option<Handle<TiledMap>>,
-}
-
-impl Task for LoadMap {
+impl Task for SpawnMap {
 
     fn start(&mut self, game: &mut Game, ctx: &mut ScriptContext) {
         let ctx = ctx.run_context;
@@ -48,18 +47,44 @@ impl Task for LoadMap {
             Readiness::Failed => panic!("Map filed to load"),
         }
         
-        // Gets map contents
+        // Spawns map contents
         let map_storage = manager.storage::<TiledMap>();
         let tileset_storage = manager.storage::<Tileset>();
+        let texture_storage = manager.storage::<Texture>();
 
         let map = map_storage.get(map_handle).unwrap();
-        println!("{map:#?}");
-        for tileset_entry in &map.tilesets {
-            let tileset_entry = tileset_storage.get(&tileset_entry.tileset).unwrap();
-            println!("{tileset_entry:#?}");
-        }
-        println!("Finished loading {} on tick {}", self.path, ctx.tick());
+        let tilesets = map.tilesets.map
+        spawn_map(map, &tileset_storage, &texture_storage);
 
         true
+    }
+}
+
+fn spawn_map(
+    map: &TiledMap,
+    tilesets: &[Tileset],
+    textures: &AssetStorage<Texture>,
+) {
+    for layer in &map.layers {
+        match &layer.kind {
+            LayerKind::TileLayer(_) => panic!("Tile layers not allowed at root"),
+            LayerKind::GroupLayer(layer) => handle_group_layer(layer, tilesets, map),
+        }
+    }
+}
+
+fn handle_group_layer(group_layer: &GroupLayer, tilesets: &[Tileset], map: &TiledMap) {
+    for layer in group_layer.iter() {
+        match &layer.kind {
+            LayerKind::TileLayer(tile_layer) => {
+                let (min_x, min_y, max_x, max_y) = tile_layer.bounds(map);
+                for x in min_x..max_x {
+                    for y in min_y..max_y {
+                        let tile_gid = tile_layer.get_tile_gid(x, y, map);
+                    }
+                }
+            },
+            LayerKind::GroupLayer(_) => panic!("Sub group layers not allowed"),
+        }
     }
 }

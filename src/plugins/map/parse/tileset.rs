@@ -1,6 +1,7 @@
 use roxmltree::{Document, Node};
-use crate::map::{FillMode, Grid, ObjectAlignment, TileOffset, TileRenderSize};
+use crate::map::{FillMode, Grid, ObjectAlignment, Tile, TileOffset, TileRenderSize};
 use crate::map::TmxParseError;
+use crate::HashMap;
 
 
 #[derive(Clone, Default, Debug)]
@@ -19,6 +20,7 @@ pub struct Tileset {
     pub tile_offset: Option<TileOffset>,
     pub grid: Option<Grid>,
     pub image: Option<Image>,
+    pub tiles: HashMap<u32, Tile>,
 }
 
 impl Tileset {

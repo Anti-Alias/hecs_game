@@ -1,9 +1,9 @@
 use roxmltree::{Document, Node};
-use crate::map::{Orientation, RenderOrder, TmxParseError};
+use crate::map::{Layer, Orientation, RenderOrder, TmxParseError};
 use crate::map::parse;
 
 /// A mostly 1:1 mapping of the TMX <map> specification, with dependent tileset left unloaded.
-#[derive(Clone, Debug, Default)]
+#[derive(Debug)]
 pub struct TiledMap {
     pub version: String,
     pub orientation: Orientation,
@@ -12,8 +12,30 @@ pub struct TiledMap {
     pub height: u32,
     pub tile_width: u32,
     pub tile_height: u32,
+    pub chunk_width: u32,
+    pub chunk_height: u32,
     pub tilesets: Vec<TilesetEntry>,
     pub infinite: bool,
+    pub layers: Vec<Layer>,
+}
+
+impl Default for TiledMap {
+    fn default() -> Self {
+        Self {
+            version: Default::default(),
+            orientation: Default::default(),
+            render_order: Default::default(),
+            width: Default::default(),
+            height: Default::default(),
+            tile_width: Default::default(),
+            tile_height: Default::default(),
+            chunk_width: 16,
+            chunk_height: 16,
+            tilesets: Default::default(),
+            infinite: Default::default(),
+            layers: Default::default()
+        }
+    }
 }
 
 impl TiledMap {

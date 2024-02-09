@@ -1,8 +1,8 @@
 use roxmltree::Document;
 use crate::map::parse;
-use crate::{AssetManager, AssetValue, Handle, Readiness, Texture};
+use crate::{AssetManager, AssetValue, Handle, HashMap, Readiness, Texture};
 use crate::{Asset, AssetLoader, AssetPath, AssetResult, map::TmxParseError};
-use super::Orientation;
+use super::{Orientation, Tile};
 
 /// Loader for a .tsx file.
 /// Outputs a [`Tileset`].
@@ -41,6 +41,7 @@ pub struct Tileset {
     pub tile_offset: Option<TileOffset>,
     pub grid: Option<Grid>,
     pub image: Option<Handle<Texture>>,
+    pub tiles: HashMap<u32, Tile>,
 }
 
 impl Tileset {
@@ -63,6 +64,7 @@ impl Tileset {
             tile_offset: parsed_tileset.tile_offset,
             grid: parsed_tileset.grid,
             image,
+            tiles: parsed_tileset.tiles,
         }
     }
 }

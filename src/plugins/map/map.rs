@@ -1,9 +1,12 @@
+use std::collections::HashMap;
 use std::num::ParseIntError;
-use crate::{AssetManager, Readiness};
+use crate::{AssetManager, Color, Readiness};
 use crate::{Asset, AssetLoader, AssetResult, AssetValue, Handle, map::Tileset};
 use crate::map::parse;
 use roxmltree::Document;
 use derive_more::*;
+
+use super::Layer;
 
 /// [`AssetLoader`] for a [`TiledMap`] coming from a tmx file.
 pub struct TmxLoader;
@@ -25,7 +28,7 @@ impl AssetLoader for TmxLoader {
 }
 
 /// A processed version of [`parse::TiledMap`] such that tilesets are represented as handles.
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct TiledMap {
     pub version: String,
     pub orientation: Orientation,
@@ -34,26 +37,32 @@ pub struct TiledMap {
     pub height: u32,
     pub tile_width: u32,
     pub tile_height: u32,
+    pub chunk_width: u32,
+    pub chunk_height: u32,
     pub tilesets: Vec<TilesetEntry>,
     pub infinite: bool,
+    pub layers: Vec<Layer>,
 }
 
 impl TiledMap {
-    fn from_parsed(parsed_map: parse::TiledMap, manager: &AssetManager) -> Self {
-        let tilesets: Vec<TilesetEntry> = parsed_map.tilesets
+    fn from_parsed(parsed: parse::TiledMap, manager: &AssetManager) -> Self {
+        let tilesets: Vec<TilesetEntry> = parsed.tilesets
             .into_iter()
             .map(|parsed_entry| TilesetEntry::from_parsed(parsed_entry, manager))
             .collect();
         Self {
-            version: parsed_map.version,
-            orientation: parsed_map.orientation,
-            render_order: parsed_map.render_order,
-            width: parsed_map.width,
-            height: parsed_map.height,
-            tile_width: parsed_map.tile_width,
-            tile_height: parsed_map.tile_height,
+            version: parsed.version,
+            orientation: parsed.orientation,
+            render_order: parsed.render_order,
+            width: parsed.width,
+            height: parsed.height,
+            tile_width: parsed.tile_width,
+            tile_height: parsed.tile_height,
+            chunk_width: parsed.chunk_width,
+            chunk_height: parsed.chunk_height,
             tilesets,
-            infinite: parsed_map.infinite,
+            infinite: parsed.infinite,
+            layers: parsed.layers,
         }
     }
 }
@@ -125,6 +134,57 @@ impl TilesetEntry {
                 first_gid,
                 tileset: manager.load(source),
             },
+        }
+    }
+}
+
+/// A set of properties.
+#[derive(Clone, Default, Debug)]
+pub struct Properties(HashMap<String, PropertyValue>);
+impl Properties {
+    pub fn get(&self, name: impl AsRef<str>) -> Option<&PropertyValue> {
+        self.0.get(name.as_ref())
+    }
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub enum PropertyValue {
+    String(String),
+    Float(f32),
+    Bool(bool),
+    Color(Color),
+    File(String),
+}
+
+impl PropertyValue {
+    pub fn as_string(&self) -> Option<&str> {
+        match self {
+            PropertyValue::String(str) => Some(&str),
+            _ => None,
+        }
+    }
+    pub fn as_float(&self) -> Option<f32> {
+        match self {
+            PropertyValue::Float(float) => Some(*float),
+            _ => None,
+        }
+    }
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            PropertyValue::Bool(bool) => Some(*bool),
+            _ => None,
+        }
+    }
+    pub fn as_color(&self) -> Option<Color> {
+        match self {
+            PropertyValue::Color(color) => Some(*color),
+            _ => None,
+        }
+    }
+    pub fn as_file(&self) -> Option<&str> {
+        match self {
+            PropertyValue::File(file) => Some(&file),
+            _ => None,
         }
     }
 }

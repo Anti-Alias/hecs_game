@@ -1,9 +1,13 @@
 mod map;
+mod tile;
 mod tileset;
+mod layer;
 mod parse;
 
 pub use map::*;
+pub use tile::*;
 pub use tileset::*;
+pub use layer::*;
 
 use crate::{AssetManager, Plugin};
 
