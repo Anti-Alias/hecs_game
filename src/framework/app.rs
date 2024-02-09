@@ -22,26 +22,25 @@ pub struct App {
     event_bus: EventBus,                                // Place to fire events, and attach event handlers.
     commands: VecDeque<Box<dyn Command>>,
     app_requests: VecDeque<AppRequest>,
+    runner: Option<Box<dyn AppRunner>>,
 }
 
 impl App {
 
-    pub fn builder() -> AppBuilder {
-        AppBuilder {
-            app: Self {
-                game: Game::new(),
-                quit_requested: false,
-                tick: 1,
-                tick_accum: Duration::ZERO,
-                tick_duration: Duration::from_secs_f64(1.0/60.0),
-                systems: HashMap::default(),
-                enabled_systems: HashMap::default(),
-                scripts: HashMap::default(),
-                event_queue: VecDeque::default(),
-                event_bus: EventBus::default(),
-                commands: VecDeque::new(),
-                app_requests: VecDeque::new(),
-            },
+    pub fn new() -> Self {
+        Self {
+            game: Game::new(),
+            quit_requested: false,
+            tick: 1,
+            tick_accum: Duration::ZERO,
+            tick_duration: Duration::from_secs_f64(1.0/60.0),
+            systems: HashMap::default(),
+            enabled_systems: HashMap::default(),
+            scripts: HashMap::default(),
+            event_queue: VecDeque::default(),
+            event_bus: EventBus::default(),
+            commands: VecDeque::new(),
+            app_requests: VecDeque::new(),
             runner: None,
         }
     }
@@ -189,36 +188,22 @@ impl App {
             .or_default()
             .push(script);
     }
-}
-
-
-pub struct AppBuilder {
-    app: App,
-    runner: Option<Box<dyn AppRunner>>,
-}
-
-impl AppBuilder {
-
-    /**
-     * Reference to underlying [`Game`].
-     */
-    pub fn game(&mut self) -> &mut Game { &mut self.app.game }
 
     /// Adds a system to the stage specified.
-    pub fn system(&mut self, stage: Stage, system: System) -> &mut Self {
-        self.system_enabled(stage, system, true);
+    pub fn add_system(&mut self, stage: Stage, system: System) -> &mut Self {
+        self.add_system_enabled(stage, system, true);
         self
     }
 
     /// Adds a system to the stage specified.
-    pub fn system_enabled(&mut self, stage: Stage, system: System, enabled: bool) -> &mut Self {
-        if self.app.systems.contains_key(&system) {
+    pub fn add_system_enabled(&mut self, stage: Stage, system: System, enabled: bool) -> &mut Self {
+        if self.systems.contains_key(&system) {
             panic!("Duplicate system {system:?}");
         }
         let enabled_counter = if enabled { 1 } else { 0 };
-        self.app.systems.insert(system, SystemMeta { enabled_counter, stage });
+        self.systems.insert(system, SystemMeta { enabled_counter, stage });
         if enabled {
-            self.app.enabled_systems
+            self.enabled_systems
                 .entry(stage)
                 .or_default()
                 .insert(system);
@@ -226,27 +211,27 @@ impl AppBuilder {
         self
     }
 
-    pub fn event_handler<E: Event>(&mut self, handler: EventHandler<E>) -> &mut Self {
-        self.app.event_bus.add_handler(handler);
+    pub fn add_event_handler<E: Event>(&mut self, handler: EventHandler<E>) -> &mut Self {
+        self.event_bus.add_handler(handler);
         self
     }
 
-    pub fn plugin(&mut self, mut plugin: impl Plugin) -> &mut Self {
+    pub fn add_plugin(&mut self, mut plugin: impl Plugin) -> &mut Self {
         plugin.install(self);
         self
     }
 
-    pub fn tick_duration(&mut self, tick_duration: Duration) -> &mut Self {
-        self.app.tick_duration = tick_duration;
+    pub fn set_tick_duration(&mut self, tick_duration: Duration) -> &mut Self {
+        self.tick_duration = tick_duration;
         self
     }
 
-    pub fn tick_rate(&mut self, tick_rate: f64) -> &mut Self {
-        self.app.tick_duration = Duration::from_secs_f64(1.0 / tick_rate);
+    pub fn set_tick_rate(&mut self, tick_rate: f64) -> &mut Self {
+        self.tick_duration = Duration::from_secs_f64(1.0 / tick_rate);
         self
     }
 
-    pub fn runner(&mut self, runner: impl AppRunner + 'static) {
+    pub fn set_runner(&mut self, runner: impl AppRunner + 'static) {
         self.runner = Some(Box::new(runner));
     }
 
@@ -266,7 +251,7 @@ impl AppBuilder {
         {
             env_logger::init();
             let mut runner = self.runner.take().expect("Runner not configured");
-            runner.run(self.app);
+            runner.run(self);
         }
     }
 }
@@ -280,14 +265,14 @@ pub trait AppRunner {
  * Some function or object that adds functionality to an [`App`].
  */
 pub trait Plugin {
-    fn install(&mut self, builder: &mut AppBuilder);
+    fn install(&mut self, app: &mut App);
 }
 
 impl<F> Plugin for F
-where F: FnMut(&mut AppBuilder)
+where F: FnMut(&mut App)
 {
-    fn install(&mut self, builder: &mut AppBuilder) {
-        self(builder);
+    fn install(&mut self, app: &mut App) {
+        self(app);
     }
 }
 

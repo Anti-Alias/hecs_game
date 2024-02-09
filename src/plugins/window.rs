@@ -7,7 +7,7 @@ use winit::event_loop::{EventLoop, EventLoopBuilder, EventLoopWindowTarget};
 use winit::keyboard::PhysicalKey;
 use winit::monitor::{MonitorHandle, VideoMode};
 use winit::window::{CursorGrabMode, Fullscreen, Window as WinitWindow, WindowBuilder};
-use crate::{App, AppBuilder, AppRunner, Cursor, GraphicsState, Keyboard, Plugin, WindowRequest, WindowRequests};
+use crate::{App, AppRunner, Cursor, GraphicsState, Keyboard, Plugin, WindowRequest, WindowRequests};
 
 /// Opens a window and injects a [`GraphicsState`] for use in a graphics engine.
 /// Adds a runner that is synced with the framerate.
@@ -29,7 +29,7 @@ impl Default for WindowPlugin {
 }
 
 impl Plugin for WindowPlugin {
-    fn install(&mut self, builder: &mut AppBuilder) {
+    fn install(&mut self, app: &mut App) {
         let event_loop = EventLoopBuilder::<()>::with_user_event().build().unwrap();
         let window = WindowBuilder::new()
             .with_inner_size(PhysicalSize::new(self.window_width, self.window_height))
@@ -41,10 +41,9 @@ impl Plugin for WindowPlugin {
                 inner_window.video_modes.push((monitor.clone(), video_mode));
             }
         }
-        builder.game()
-            .add(GraphicsState::new(&window, TextureFormat::Depth24Plus))
-            .add(inner_window);
-        builder.runner(WindowRunner {
+        app.game.add(GraphicsState::new(&window, TextureFormat::Depth24Plus));
+        app.game.add(inner_window);
+        app.set_runner(WindowRunner {
             event_loop: Some(event_loop),
             window,
             features: self.features,

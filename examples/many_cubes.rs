@@ -8,17 +8,16 @@ use rand::rngs::SmallRng;
 use wgpu::Face;
 
 fn main() {
-    let mut builder = App::builder();
-    builder
-        .plugin(EnginePlugin::default())
-        .plugin(FlycamPlugin)
-        .system(Stage::Update, rotate_cubes)
-        .tick_rate(60.0)
-        .event_handler(handle_start);
-    builder.run();
+    let mut app = App::new();
+    app.add_plugin(EnginePlugin::default());
+    app.add_plugin(FlycamPlugin);
+    app.set_tick_rate(60.0);
+    app.add_system(Stage::Update, rotate_cubes);
+    app.add_event_handler(start);
+    app.run();
 }
 
-fn handle_start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
+fn start(game: &mut Game, _event: &StartEvent, _ctx: &mut RunContext) {
 
     // Extracts domains
     let mut world       = game.get::<&mut World>();

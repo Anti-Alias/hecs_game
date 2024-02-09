@@ -3,16 +3,16 @@ use std::hash::Hash;
 use glam::Vec2;
 use winit::keyboard::KeyCode;
 use winit::window::Fullscreen;
-use crate::{AppBuilder, Game, HashSet, Plugin, RunContext, Stage};
+use crate::{App, Game, HashSet, Plugin, RunContext, Stage};
 
 pub struct InputPlugin;
 impl Plugin for InputPlugin {
-    fn install(&mut self, builder: &mut AppBuilder) {
-        builder.game()
+    fn install(&mut self, app: &mut App) {
+        app.game
             .add(WindowRequests::default())
             .add(Keyboard::default())
             .add(Cursor::default());
-        builder.system(Stage::Cleanup, sync_inputs);
+        app.add_system(Stage::Cleanup, sync_inputs);
     }
 }
 
