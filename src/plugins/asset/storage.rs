@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::sync::mpsc::Sender;
 use slotmap::{new_key_type, SlotMap};
-use crate::{Asset, AssetId, AssetManager, AssetMessage, Readiness};
+use crate::{Asset, AssetId, AssetMessage, Readiness};
 
 /// Allows for reasoning about an [`AssetStorage`] without knowing its underlying [`Asset`] type.
 pub(crate) trait DynStorage {

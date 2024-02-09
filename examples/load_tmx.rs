@@ -2,12 +2,11 @@ use hecs_game::map::{GroupLayer, LayerKind, TiledMap, Tileset};
 use hecs_game::*;
 
 fn main() {
-    let mut builder = App::builder();
-    builder
-        .plugin(EnginePlugin::default())
-        .plugin(FlycamPlugin)
-        .event_handler(start);
-    builder.run();
+    let mut app = App::new();
+    app.add_plugin(EnginePlugin::default());
+    app.add_plugin(FlycamPlugin);
+    app.add_event_handler(start);
+    app.run();
 }
 
 fn start(_game: &mut Game, _event: &StartEvent, ctx: &mut RunContext) {
@@ -53,8 +52,8 @@ impl Task for SpawnMap {
         let texture_storage = manager.storage::<Texture>();
 
         let map = map_storage.get(map_handle).unwrap();
-        let tilesets = map.tilesets.map
-        spawn_map(map, &tileset_storage, &texture_storage);
+        // let tilesets = map.tilesets.map
+        // spawn_map(map, &tileset_storage, &texture_storage);
 
         true
     }
