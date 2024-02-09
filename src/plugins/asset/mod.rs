@@ -12,16 +12,16 @@ pub use path_parts::*;
 pub use loader::*;
 pub use manager::*;
 
-use crate::{AppBuilder, Game, Plugin, RunContext, Stage};
+use crate::{App, Game, Plugin, RunContext, Stage};
 
 
 pub struct AssetPlugin;
 impl Plugin for AssetPlugin {
-    fn install(&mut self, builder: &mut AppBuilder) {
+    fn install(&mut self, app: &mut App) {
         let mut manager = AssetManager::new();
         manager.add_protocol(FileProtocol, true);
-        builder.game().add(manager);
-        builder.system(Stage::Asset, handle_asset_messages);
+        app.game.add(manager);
+        app.add_system(Stage::Asset, handle_asset_messages);
     }
 }
 

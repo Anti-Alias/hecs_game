@@ -3,9 +3,7 @@ use winit::keyboard::KeyCode;
 use winit::monitor::{MonitorHandle, VideoMode};
 use winit::window::Fullscreen;
 use crate::g3d::{Material, Mesh};
-use crate::*;
-
-use self::map::MapPlugin;
+use crate::{App, AssetManager, AssetPlugin, EcsPlugin, Game, GraphicsPlugin, InputPlugin, Keyboard, Plugin, RunContext, Stage, Texture, Window, WindowFeatures, WindowPlugin, WindowRequests};
 
 /**
  * Main game engine plugin.
@@ -25,24 +23,20 @@ impl Default for EnginePlugin {
 }
 
 impl Plugin for EnginePlugin {
-    fn install(&mut self, builder: &mut AppBuilder) {
+    fn install(&mut self, app: &mut App) {
+        app.add_plugin(InputPlugin);
+        app.add_plugin(WindowPlugin {
+            window_width: self.window_width,
+            window_height: self.window_height,
+            features: WindowFeatures::default(),
+        });
+        app.add_plugin(EcsPlugin);
+        app.add_plugin(AssetPlugin);
+        app.add_plugin(GraphicsPlugin);
+        app.set_tick_duration(Duration::from_secs_f64(1.0/60.0));
+        app.add_system(Stage::PreUpdate, toggle_fullscreen);
 
-        builder.system(Stage::PreUpdate, toggle_fullscreen);
-        builder
-            .plugin(InputPlugin)
-            .plugin(WindowPlugin {
-                window_width: self.window_width,
-                window_height: self.window_height,
-                features: WindowFeatures::default(),
-            })
-            .plugin(EcsPlugin)
-            .plugin(AssetPlugin)
-            .plugin(GraphicsPlugin)
-            .plugin(MapPlugin)
-            .tick_duration(Duration::from_secs_f64(1.0/60.0));
-
-        let game = builder.game();
-        let mut assets = game.get::<&mut AssetManager>();
+        let mut assets = app.game.get::<&mut AssetManager>();
         assets.add_storage::<Mesh>();
         assets.add_storage::<Material>();
         assets.add_storage::<Texture>();

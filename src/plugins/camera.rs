@@ -3,16 +3,16 @@ use glam::{Mat4, Quat, Vec2, Vec3};
 use hecs::World;
 use winit::keyboard::KeyCode;
 use crate::math::{lerp_matrices, Transform};
-use crate::{Cursor, Game, Keyboard, Plugin, Rect, RunContext, Stage, Window, WindowRequests};
+use crate::{App, Cursor, Game, Keyboard, Plugin, Rect, RunContext, Stage, Window, WindowRequests};
 
 const SENSITIVITY_SCALE: f32 = 0.005;
 const SCROLL_SENSITIVITY_SCALE: f32 = 0.1;
 
 pub struct FlycamPlugin;
 impl Plugin for FlycamPlugin {
-    fn install(&mut self, builder: &mut crate::AppBuilder) {
-        builder.system(Stage::Update, control_flycams);
-        builder.system(Stage::PostUpdate, set_cam_projections);
+    fn install(&mut self, app: &mut App) {
+        app.add_system(Stage::Update, control_flycams);
+        app.add_system(Stage::PostUpdate, set_cam_projections);
     }
 }
 

@@ -3,23 +3,22 @@ use tracing::instrument;
 use wgpu::{Color as WgpuColor, CommandEncoderDescriptor, Device, LoadOp, Operations, RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPassDescriptor, StoreOp, SurfaceTexture};
 use crate::g3d::{Material, Mesh};
 use crate::math::Transform;
-use crate::{g3d, AppBuilder, AssetManager, AssetStorage, Camera, Game, GraphicsState, Plugin, RunContext, Scene, SceneGraph, Stage, Texture, TextureLoader, Tracker};
+use crate::{g3d, App, AssetManager, AssetStorage, Camera, Game, GraphicsState, Plugin, RunContext, Scene, SceneGraph, Stage, Texture, TextureLoader, Tracker};
 
 
 /// Adds primitive [`GraphicsState`].
 /// Adds a 2D and 3D graphics engine.
 pub struct GraphicsPlugin;
 impl Plugin for GraphicsPlugin {
-    fn install(&mut self, builder: &mut AppBuilder) {
-        builder.system(Stage::Render, render_3d);
-        let game = builder.game();
-        game.add(Scene::<g3d::Renderable>::new());
+    fn install(&mut self, app: &mut App) {
+        app.add_system(Stage::Render, render_3d);
+        app.game.add(Scene::<g3d::Renderable>::new());
         let (device, queue) = {
-            let state = game.get::<&GraphicsState>();
+            let state = app.game.get::<&GraphicsState>();
             (state.device.clone(), state.queue.clone())
         };
-        game.add(g3d::G3D::new(device.clone(), queue.clone()));
-        let mut assets = game.get::<&mut AssetManager>();
+        app.game.add(g3d::G3D::new(device.clone(), queue.clone()));
+        let mut assets = app.game.get::<&mut AssetManager>();
         assets.add_loader(TextureLoader { device, queue, });
     }
 }
